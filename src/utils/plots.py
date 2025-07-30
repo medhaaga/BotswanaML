@@ -32,7 +32,7 @@ def multi_label_predictions(dir, label_encoder, split='test', plot_confusion=Tru
         sns.heatmap(cm, annot=True, fmt=".2f", cmap="Blues", 
                     xticklabels=class_names, yticklabels=class_names,
                     cbar=False, square=True, linewidths=0,
-                    annot_kws={"size": 30},)
+                    annot_kws={"size": 20},)
 
         ax.set_xlabel("Predicted Label", fontsize=30, labelpad=20)
         ax.set_ylabel("True Label", fontsize=30, labelpad=20)

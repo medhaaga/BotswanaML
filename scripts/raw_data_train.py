@@ -85,14 +85,13 @@ if __name__ == '__main__':
     # parse arguments
     parser = parse_arguments()
     args = parser.parse_args()
-    # device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    device = 'cpu'
+    device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
     # experiment directory 
-    dir = get_results_path(args.experiment_name, args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta, args.window_duration_percentile, with_trotting=True)
+    dir = get_results_path(args.experiment_name, args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta, args.window_duration_percentile, with_trotting=False)
     os.makedirs(dir, exist_ok=True)
 
     ##############################################
@@ -115,10 +114,10 @@ if __name__ == '__main__':
     start = time.time()
     X_train, y_train, z_train, X_val, y_val, z_val, X_test, y_test, z_test, _ = setup_data_objects(metadata, 
                                                                                                     all_annotations, 
-                                                                                                    RAW_COLLAPSE_BEHAVIORS_MAPPING_W_TROTTING, 
-                                                                                                    RAW_BEHAVIORS_W_TROTTING, 
+                                                                                                    RAW_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING, 
+                                                                                                    RAW_BEHAVIORS_WO_TROTTING, 
                                                                                                     args, 
-                                                                                                    reuse_behaviors=RAW_BEHAVIORS_W_TROTTING,
+                                                                                                    reuse_behaviors=RAW_BEHAVIORS_WO_TROTTING,
                                                                                                     acc_data_path=get_matched_data_path(),
                                                                                                     acc_metadata_path=get_matched_metadata_path()) 
     
