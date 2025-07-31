@@ -81,7 +81,7 @@ def combined_annotations(video_path, audio_path, id_mapping):
     return all_annotations
 
 
-def create_matched_data(filtered_metadata, annotations, min_duration=1.0, verbose=True):
+def create_matched_data(filtered_metadata, annotations, verbose=True):
     
     """Match the files in metadata with available annotations
 
@@ -200,8 +200,6 @@ def create_matched_data(filtered_metadata, annotations, min_duration=1.0, verbos
                         
                     behaviour_start_time = row['Timestamp_start'].to_pydatetime().replace(tzinfo=timezone('UTC'))
                     behaviour_end_time = row['Timestamp_end'].to_pydatetime().replace(tzinfo=timezone('UTC'))
-                    min_end_time = behaviour_start_time + timedelta(seconds=min_duration)
-                    behaviour_end_time = max(behaviour_end_time, min_end_time)
 
                     if not pd.isnull(behaviour_end_time):
                         acc_summary.loc[len(acc_summary)] = [individual, unique_period_loop, 0, 0.0, 0]
