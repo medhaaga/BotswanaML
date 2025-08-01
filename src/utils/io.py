@@ -20,19 +20,19 @@ def get_path(levels, main_dir):
     return path
 
 def get_matched_data_path():
-    data_path = os.path.join(get_project_root(), 'data', 'duration1')
+    data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
     path = os.path.join(data_path, 'matched_acc_data.csv')
     return path
 
 def get_matched_metadata_path():
-    data_path = os.path.join(get_project_root(), 'data', 'duration1')
+    data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
     path = os.path.join(data_path, 'matched_acc_metadata.csv')
     return path
 
 def get_matched_summary_path():
-    data_path = os.path.join(get_project_root(), 'data', 'duration1')
+    data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
     path = os.path.join(data_path, 'matched_acc_summary.csv')
     return path

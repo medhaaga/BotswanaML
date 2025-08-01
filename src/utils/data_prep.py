@@ -277,7 +277,8 @@ def split_row(row, chunk_size=480, sampling_rate=16):
             'acc_x': row['acc_x'][start:end],
             'acc_y': row['acc_y'][start:end],
             'acc_z': row['acc_z'][start:end],
-            'duration': chunk_size / sampling_rate
+            'duration': chunk_size / sampling_rate,
+            'Source': row['Source']
         })
 
     if remainder > 0:
@@ -286,7 +287,8 @@ def split_row(row, chunk_size=480, sampling_rate=16):
             'acc_x': row['acc_x'][-remainder:],
             'acc_y': row['acc_y'][-remainder:],
             'acc_z': row['acc_z'][-remainder:],
-            'duration': remainder / sampling_rate
+            'duration': remainder / sampling_rate,
+            'Source': row['Source']
         })
 
     return chunks
@@ -344,8 +346,8 @@ def setup_dataloaders(X_train, y_train, X_val, y_val, X_test, y_test, args):
     n_outputs = len(np.unique(np.concatenate((y_train, y_val, y_test))))
     
     weights = give_balanced_weights(args.theta, y_train)
-    # sample_weights = np.unique(y_train, return_counts=True)[1]
-    y_weights = torch.tensor([weights[i] for i in y_train], dtype=torch.float32)
+    sample_weights = np.unique(y_train, return_counts=True)[1]
+    y_weights = torch.tensor([weights[i]/sample_weights[i] for i in y_train], dtype=torch.float32)
     sampler = WeightedRandomSampler(y_weights, len(y_weights))
 
     # converting to one-hot vectors

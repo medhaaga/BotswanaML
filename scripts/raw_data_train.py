@@ -40,9 +40,7 @@ from src.utils.data_prep import (setup_data_objects,
 
 from config.settings import (id_mapping,
                              RAW_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING,
-                             RAW_COLLAPSE_BEHAVIORS_MAPPING_W_TROTTING,
-                             RAW_BEHAVIORS_WO_TROTTING,
-                             RAW_BEHAVIORS_W_TROTTING,)
+                             RAW_BEHAVIORS_WO_TROTTING,)
 
 
 ##############################################
