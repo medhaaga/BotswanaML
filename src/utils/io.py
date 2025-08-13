@@ -52,8 +52,14 @@ def get_video_labels_path():
 def get_audio_labels_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, '2025_07_25_awd_audio_annotations.csv')
+    path = os.path.join(data_path, '2025_08_01_awd_audio_annotations.csv')
 
+    return path
+
+def get_RVC_historic_data_path():
+    data_path = os.path.join(get_project_root(), 'data')
+    os.makedirs(data_path, exist_ok=True)
+    path = os.path.join(data_path, 'RVC_historic_data.csv')
     return path
 
 def get_results_dir():

@@ -1,6 +1,9 @@
 import sys
 import os
 sys.path.append('.')
+sys.path.append('../')
+sys.path.append('../../')
+
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -13,12 +16,9 @@ from torch.utils.data import DataLoader, WeightedRandomSampler, TensorDataset
 import torch
 import warnings
 import time
-import ast
 import json
 from scipy.signal import butter, filtfilt
-from config.settings import (SAMPLING_RATE,
-                             id_mapping
-)
+import config as config
 from src.utils.io import (format_time,
                           get_metadata_path,
                           get_video_labels_path,
@@ -217,9 +217,6 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
 
                             # duration of the acceleration data that is matched with the behavior
                             matched_duration = (behaviour_acc.iloc[len(behaviour_acc)-1]['Timestamp'] - behaviour_acc.iloc[0]['Timestamp']).total_seconds()
-
-                            if matched_duration < min_duration - 1:
-                                print(f"Behavior duration: {(behaviour_end_time - behaviour_start_time).total_seconds()}, Acc duration: {matched_duration}")
 
                             acc_summary.at[acc_summary.index[-1], 'acc'] += matched_duration
                             acc_summary.at[acc_summary.index[-1], 'number of matched acc'] += 1
@@ -450,6 +447,79 @@ def get_exp_filter_profiles(exp_name):
 
     return train_filter_profile, test_filter_profile
 
+
+def create_metadata(path_mappings, metadata_path):
+
+    """
+    Generates metadata from accelerometer data files for multiple individuals.
+
+    Parameters:
+    - path_mappings (dict): A dictionary where keys are individual names (str) and values are file paths (str) to their data directories.
+    - metadata_path (str): The file path where the generated metadata CSV file will be saved.
+
+    Metadata columns 
+    -----------
+
+    file path: string
+        path-like object of where the half day segment is stored
+    individual ID: string
+        individual ID
+    year: int 
+        year of behavior observation
+    UTC Date [yyyy-mm-dd]: string 
+        date of behavior observation
+    am/pm: string 
+        AM or PM time of behavior observation
+    half day [yyyy-mm-dd_am/pm]: string 
+        half day of behavior observation
+    avg temperature [C]: float 
+        average temperature on the half day of behavior observation
+
+    """
+
+    ## Read in your combined annotations
+
+    data_locations = pd.DataFrame({'id': list(path_mappings.keys()),
+                                'location': list(path_mappings.values()),
+                                'combined_acc_location': [os.path.join(file, 'combined_acc') for file in list(path_mappings.values())],
+                                'Outputs_location': [os.path.join(file, 'Outputs') for file in list(path_mappings.values())]}
+                                )
+
+    metadata = pd.DataFrame(columns = ['file path', 'individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]'])
+    data_locations_existing = data_locations[data_locations['combined_acc_location'].apply(os.path.isdir)].reset_index(drop=True)
+
+    # Step 3: Extract individuals and their corresponding filepaths
+    individuals = data_locations_existing['id'].values
+    individuals_acc_filepaths = [
+        [
+            os.path.join(dir_path, file)
+            for file in os.listdir(dir_path)
+            if file.endswith('csv')
+        ]
+        for dir_path in data_locations_existing['combined_acc_location']
+    ]
+    
+    # Sample data for the loop
+    data = zip(individuals, individuals_acc_filepaths)
+
+    for individual, acc_filepaths in data:
+
+        print('individual {} has {} halfdays.'.format(individual, len(acc_filepaths)))
+
+        for file_path in tqdm(acc_filepaths):
+
+            basename = os.path.basename(file_path).split('.')[0]
+            date = basename.split('_')[1]
+            year = date.split('-')[0]
+            am_pm = basename.split('_')[2]
+            half_day = date + '_' + am_pm
+
+            csv_file = pd.read_csv(file_path)
+            avg_temp = csv_file['Temperature [Celsius]'].mean()
+
+            metadata.loc[len(metadata)] = [file_path, individual, year, date, am_pm, half_day, avg_temp]
+
+    metadata.to_csv(metadata_path, index=False)
 
 def train_test_metadata_split(train_metadata, test_metadata, test_size=0.2, random_state=0):
     
@@ -811,9 +881,9 @@ def create_padded_or_truncated_data(df, fixed_length, padding='repeat', reuse_be
 
             reuse = row['behavior'] in reuse_behaviors
 
-            acc_x_windows = repeat_or_truncate_list(row['acc_x'], fixed_length, reuse=reuse, min_length=min_duration*SAMPLING_RATE)
-            acc_y_windows = repeat_or_truncate_list(row['acc_y'], fixed_length, reuse=reuse, min_length=min_duration*SAMPLING_RATE)
-            acc_z_windows = repeat_or_truncate_list(row['acc_z'], fixed_length, reuse=reuse, min_length=min_duration*SAMPLING_RATE)
+            acc_x_windows = repeat_or_truncate_list(row['acc_x'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLqING_RATE)
+            acc_y_windows = repeat_or_truncate_list(row['acc_y'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLING_RATE)
+            acc_z_windows = repeat_or_truncate_list(row['acc_z'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLING_RATE)
 
             assert len(acc_x_windows) == len(acc_y_windows) == len(acc_z_windows) 
 
@@ -930,8 +1000,8 @@ def setup_data_objects(metadata, all_annotations, collapse_behavior_mapping,
         max_acc_duration = args.window_duration
     else:
         ValueError("Both window_duration_percentile and window_duration cannot be None in arguments.")
-        
-    max_steps = int(max_acc_duration*SAMPLING_RATE)
+
+    max_steps = int(max_acc_duration*config.SAMPLING_RATE)
     X, y, z = create_padded_or_truncated_data(df_train, max_steps, padding=args.padding, reuse_behaviors=reuse_behaviors, min_duration=args.min_duration)
     X_test, y_test, z_test = create_padded_or_truncated_data(df_test, max_steps, padding=args.padding, reuse_behaviors=reuse_behaviors, min_duration=args.min_duration)
     print(f"Creating fixed-duration windows takes {time.time() - t2:3f} seconds.")
@@ -941,8 +1011,8 @@ def setup_data_objects(metadata, all_annotations, collapse_behavior_mapping,
     print(f"Time series duration window = {max_acc_duration}")
 
     # Band filter - no filter by default
-    X = apply_band_pass_filter(X, args.cutoff_frequency, SAMPLING_RATE, btype=args.filter_type, N=args.cutoff_order, axis=2)
-    X_test = apply_band_pass_filter(X_test, args.cutoff_frequency, SAMPLING_RATE, btype=args.filter_type, N=args.cutoff_order, axis=2)
+    X = apply_band_pass_filter(X, args.cutoff_frequency, config.SAMPLING_RATE, btype=args.filter_type, N=args.cutoff_order, axis=2)
+    X_test = apply_band_pass_filter(X_test, args.cutoff_frequency, config.SAMPLING_RATE, btype=args.filter_type, N=args.cutoff_order, axis=2)
 
     # standardize data
     if args.normalization:
@@ -970,10 +1040,13 @@ if __name__ == '__main__':
      
     all_annotations = combined_annotations(video_path=get_video_labels_path(), 
                                             audio_path=get_audio_labels_path(),
-                                            id_mapping=id_mapping) # load annotations 
+                                            id_mapping=config.id_mapping) # load annotations 
     
     print(f"Total number of annotations: {len(all_annotations)}")
     acc_summary, acc_data, acc_data_metadata = create_matched_data(filtered_metadata=metadata, annotations=all_annotations, verbose=True)
     acc_summary.to_csv(get_matched_summary_path(), index=False)
     acc_data.to_csv(get_matched_data_path(), index=False)
     acc_data_metadata.to_csv(get_matched_metadata_path(), index=False)
+
+    # create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
+    

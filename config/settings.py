@@ -15,26 +15,10 @@ id_mapping = {'2021_ninja_ash': 'ash', '2021_aqua_palus': 'palus', '2021_samurai
             'Birch': 'birch', 'Bishop': 'bishop', 'Rossignol': 'rossignol'}
 
 # map fine behavior classifications in annottaions file to coarser behavior classes
-RAW_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING = {'Lying (head up)': 'Vigilant', 
+RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant', 
                                     'Lying (head down)': 'Resting',
                                     'Walking': 'Moving',
                                     'Trotting': 'Moving',
-                                    'Running': 'Running',
-                                    'Standing': 'Vigilant',
-                                    'Sitting':  'Vigilant',
-                                    'Marking (scent)': 'Marking',
-                                    'Interaction': 'Other',
-                                    'Rolling': 'Marking',
-                                    'Scratching': 'Other',
-                                    'Drinking': 'Other',
-                                    'Dig': 'Other',
-                                    'Capture?': 'Other',
-                                    'Eating': 'Feeding',
-                                    }
-
-RAW_COLLAPSE_BEHAVIORS_MAPPING_W_TROTTING = {'Lying (head up)': 'Vigilant', 
-                                    'Lying (head down)': 'Resting',
-                                    'Walking': 'Moving',
                                     'Running': 'Running',
                                     'Standing': 'Vigilant',
                                     'Sitting':  'Vigilant',
@@ -55,7 +39,7 @@ id_mapping = {'2021_ninja_ash': 'ash', '2021_aqua_palus': 'palus', '2021_samurai
             '2022_samurai_jessie': 'jessie', '2022_royal_rossignol': 'rossignol', 'Jessie': 'jessie'}
 
 # map fine behavior classifications in annottaions file to coarser behavior classes
-SUMMARY_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING = {'Lying (head up)': 'Stationary', 
+SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary', 
                                     'Lying (head down)': 'Stationary',
                                     'Walking': 'Moving',
                                     'Trotting': 'Moving',
@@ -72,24 +56,7 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING = {'Lying (head up)': 'Stationary
                                     'Eating': 'Feeding',
                                     }
 
-SUMMARY_COLLAPSE_BEHAVIORS_MAPPING_W_TROTTING = {'Lying (head up)': 'Stationary', 
-                                    'Lying (head down)': 'Stationary',
-                                    'Walking': 'Moving',
-                                    'Running': 'Running',
-                                    'Standing': 'Stationary',
-                                    'Sitting':  'Stationary',
-                                    'Marking (scent)': 'Marking',
-                                    'Interaction': 'Other',
-                                    'Rolling': 'Marking',
-                                    'Scratching': 'Other',
-                                    'Drinking': 'Other',
-                                    'Dig': 'Other',
-                                    'Capture?': 'Other',
-                                    'Eating': 'Feeding',
-                                    }
 
 # behaviors of interest for classification 
-RAW_BEHAVIORS_WO_TROTTING = ['Feeding', 'Moving', 'Resting', 'Running', 'Vigilant']
-RAW_BEHAVIORS_W_TROTTING = ['Feeding', 'Moving', 'Resting', 'Running', 'Trotting', 'Vigilant']
-SUMMARY_BEHAVIORS_WO_TROTTING = ['Feeding', 'Moving', 'Running', 'Stationary']
-SUMMARY_BEHAVIORS_W_TROTTING = ['Feeding', 'Moving', 'Running', 'Stationary', 'Trotting']
+RAW_BEHAVIORS = ['Feeding', 'Moving', 'Resting', 'Running', 'Vigilant']
+SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Running', 'Stationary']
