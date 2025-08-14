@@ -26,6 +26,7 @@ from src.utils.io import (format_time,
                           get_matched_data_path, 
                           get_matched_metadata_path,
                           get_matched_summary_path,
+                          get_matched_annotations_summary_path
 )
             
 
@@ -76,7 +77,7 @@ def combined_annotations(video_path, audio_path, id_mapping):
     video_annotations['Timestamp_end'] = video_annotations['Timestamp_end'].dt.strftime('%Y/%m/%d %H:%M:%S')
 
 
-    all_annotations = pd.concat([video_annotations[annotations_columns], audio_annotations[annotations_columns]])
+    all_annotations = pd.concat([video_annotations[annotations_columns], audio_annotations[annotations_columns]]).reset_index(drop=True)
 
     return all_annotations
 
@@ -161,6 +162,18 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
     acc_data_metadata = pd.DataFrame(columns=filtered_metadata.columns, index=[])
     acc_summary = pd.DataFrame(columns=['id', 'date_am_pm_id', 'annotations', 'acc', 'number of matched acc'], index=[])
 
+    # Format and add helper columns to the annotations dataframe
+    annotations['Timestamp_start'] = pd.to_datetime(annotations['Timestamp_start'], format='%Y/%m/%d %H:%M:%S')
+    annotations['Timestamp_end'] = pd.to_datetime(annotations['Timestamp_end'], format='%Y/%m/%d %H:%M:%S')
+    annotations['duration'] = (annotations['Timestamp_end'] - annotations['Timestamp_start']).dt.total_seconds()
+    annotations['date'] = annotations['Timestamp_start'].dt.date
+    annotations['am/pm'] = pd.to_datetime(annotations['Timestamp_start'], format="%Y/%m/%d %H:%M:%S").dt.strftime('%p').str.lower() 
+    annotations['half day [yyyy-mm-dd_am/pm]'] = annotations['date'].astype(str) + '_' + annotations['am/pm']
+
+    annotations_summary = annotations.copy()
+    annotations_summary['match'] = 0
+    annotations_summary['matched_duration'] = 0
+
 
     # loop over all unique individuals in filtered_metadata
     for (i, individual) in enumerate(filtered_metadata['individual ID'].unique()):
@@ -169,13 +182,6 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
         annotations_orig = annotations[annotations['id'] == individual]
         individual_annotations = annotations_orig.copy()
 
-        # Format and add helper columns to the annotations dataframe
-        individual_annotations['Timestamp_start'] = pd.to_datetime(annotations_orig['Timestamp_start'], format='%Y/%m/%d %H:%M:%S')
-        individual_annotations['Timestamp_end'] = pd.to_datetime(annotations_orig['Timestamp_end'], format='%Y/%m/%d %H:%M:%S')
-        individual_annotations['date'] = individual_annotations['Timestamp_start'].dt.date
-        individual_annotations['am/pm'] = pd.to_datetime(individual_annotations['Timestamp_start'], format="%Y/%m/%d %H:%M:%S").dt.strftime('%p').str.lower() 
-        individual_annotations['half day [yyyy-mm-dd_am/pm]'] = individual_annotations['date'].astype(str) + '_' + individual_annotations['am/pm']
-        
         # create submetadata file for this individual
         individual_metadata = filtered_metadata[filtered_metadata['individual ID'] == individual]
 
@@ -187,16 +193,15 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
             annotation_available = unique_period_loop in individual_annotations['half day [yyyy-mm-dd_am/pm]'].values
 
             if annotation_available:
-
                 annotations_loop = individual_annotations[individual_annotations['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop]
-                
+
                 # if the acceleration file is available for this individual and half day, read it
                 
                 acc_file_path = individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop, 'file path'].values[0]
                 acc_loop = pd.read_csv(acc_file_path)
                 acc_loop['Timestamp'] = pd.to_datetime(acc_loop['Timestamp'], format='mixed', utc=True)
 
-                for _, row in annotations_loop.iterrows():
+                for row_idx, row in annotations_loop.iterrows():
                         
                     behaviour_start_time = row['Timestamp_start'].to_pydatetime().replace(tzinfo=timezone('UTC'))
                     behaviour_end_time = row['Timestamp_end'].to_pydatetime().replace(tzinfo=timezone('UTC'))
@@ -205,7 +210,6 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
                         acc_summary.loc[len(acc_summary)] = [individual, unique_period_loop, 0, 0.0, 0]
                         acc_summary.at[acc_summary.index[-1], 'annotations'] += (behaviour_end_time - behaviour_start_time).total_seconds() 
             
-                    
                     if (not pd.isnull(behaviour_end_time)) & (behaviour_end_time > behaviour_start_time):          
 
                         # log the duration of audio avalilable for the behaviour
@@ -237,11 +241,14 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
                                                             row['Source']]
 
                             acc_data_metadata.loc[len(acc_data_metadata)] = individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop].values[0].tolist()
+                            annotations_summary.at[row_idx, 'match'] = 1
+                            annotations_summary.at[row_idx, 'matched_duration'] = matched_duration
+                            
             
             else:
                 acc_summary.loc[len(acc_summary)] = [individual, unique_period_loop, 0, 0.0, 0]
 
-    return acc_summary, acc_data, acc_data_metadata
+    return acc_summary, acc_data, acc_data_metadata, annotations_summary
 
 
 def windowed_ptp_stats(arr, window=32):
@@ -1041,12 +1048,15 @@ if __name__ == '__main__':
     all_annotations = combined_annotations(video_path=get_video_labels_path(), 
                                             audio_path=get_audio_labels_path(),
                                             id_mapping=config.id_mapping) # load annotations 
+
     
     print(f"Total number of annotations: {len(all_annotations)}")
-    acc_summary, acc_data, acc_data_metadata = create_matched_data(filtered_metadata=metadata, annotations=all_annotations, verbose=True)
+
+    acc_summary, acc_data, acc_data_metadata, annotations_summary = create_matched_data(filtered_metadata=metadata, annotations=all_annotations, verbose=True)
     acc_summary.to_csv(get_matched_summary_path(), index=False)
     acc_data.to_csv(get_matched_data_path(), index=False)
     acc_data_metadata.to_csv(get_matched_metadata_path(), index=False)
+    annotations_summary.to_csv(get_matched_annotations_summary_path(), index=False)
 
     # create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
     

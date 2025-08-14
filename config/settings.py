@@ -7,13 +7,6 @@ DATE_FORMAT = "%Y%m%d_%H%M%S"
 TIMEZONE = pytz.utc
 SAMPLING_RATE = 16
 
-# no need to change these. We use it to map a separate encoding of individual ID to the globally used individual IDs
-id_mapping = {'2021_ninja_ash': 'ash', '2021_aqua_palus': 'palus', '2021_samurai_green': 'green', 
-            '2022_aqua_fossey': 'fossey', '2022_ninja_birch': 'birch', '2022_roman_bishop': 'bishop',
-            '2022_samurai_jessie': 'jessie', '2022_royal_rossignol': 'rossignol', 'Jessie': 'jessie',
-            'Fossey': 'fossey', 'Palus': 'palus', 'Ash': 'ash', 'Green': 'green',
-            'Birch': 'birch', 'Bishop': 'bishop', 'Rossignol': 'rossignol'}
-
 # map fine behavior classifications in annottaions file to coarser behavior classes
 RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant', 
                                     'Lying (head down)': 'Resting',
@@ -36,7 +29,11 @@ RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant',
 # no need to change these. We use it to map a separate encoding of individual ID to the globally used individual IDs
 id_mapping = {'2021_ninja_ash': 'ash', '2021_aqua_palus': 'palus', '2021_samurai_green': 'green', 
             '2022_aqua_fossey': 'fossey', '2022_ninja_birch': 'birch', '2022_roman_bishop': 'bishop',
-            '2022_samurai_jessie': 'jessie', '2022_royal_rossignol': 'rossignol', 'Jessie': 'jessie'}
+            '2022_samurai_jessie': 'jessie', '2022_royal_rossignol': 'rossignol', 
+            'Ash': 'ash', 'Palus': 'palus', 'Green': 'green', 
+            'Fossey': 'fossey', 'Birch': 'birch', 'Bishop': 'bishop',
+            'Jessie': 'jessie', 'Rossignol': 'rossignol'
+            }
 
 # map fine behavior classifications in annottaions file to coarser behavior classes
 SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary', 

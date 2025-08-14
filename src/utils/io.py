@@ -31,6 +31,12 @@ def get_matched_metadata_path():
     path = os.path.join(data_path, 'matched_acc_metadata.csv')
     return path
 
+def get_matched_annotations_summary_path():
+    data_path = os.path.join(get_project_root(), 'data')
+    os.makedirs(data_path, exist_ok=True)
+    path = os.path.join(data_path, 'matched_annotations_summary.csv')
+    return path
+
 def get_matched_summary_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
