@@ -73,7 +73,7 @@ def multi_label_predictions(dir, label_encoder, split='test', plot_confusion=Tru
         return label_f1s
 
 
-def plot_signal_and_online_predictions(time, signal, online_avg, window_length, hop_length, window_duration, label_encoder, plot_dir=None, half_day_behaviors=None):
+def plot_signal_and_online_predictions(time, signal, online_avg, online_avg_times, window_length, label_encoder, plot_path=None, half_day_behaviors=None):
     """
     Plots the raw signal and the online predictions.
 
@@ -92,17 +92,16 @@ def plot_signal_and_online_predictions(time, signal, online_avg, window_length, 
     
     sns.set_style("whitegrid")  # Set seaborn style at the beginning
 
+    # 1. Convert all timestamps to datetime objects for plotting
     time = pd.to_datetime(time)
-
-    # Calculate x-axis in hours
-    x = window_duration * (np.arange(online_avg.shape[-1]) * hop_length + window_length / 2) / 3600
-    
+    x_online = pd.to_datetime(online_avg_times) # Use the passed-in midpoint timestamps
+        
     # y-axis labels for each row in online_avg
     y = np.arange(online_avg.shape[0])
 
-    # Create a mesh grid for plotting
-    X, Y = np.meshgrid(x, y)
-    color_intensity = online_avg
+    # Create a mesh grid for plotting using the new timestamps
+    X, Y = np.meshgrid(x_online, y)
+    color_intensity = online_avg    
 
     # Flatten the mesh grid and color intensity for scatter plot
     X_flat = X.flatten()
@@ -122,9 +121,9 @@ def plot_signal_and_online_predictions(time, signal, online_avg, window_length, 
     cbar_ax = fig.add_subplot(gs[1, 1])
 
     # Plot the signal
-    ax_signal.plot(time, signal[0,:], label='X Signal', color='black', linewidth=.5, alpha=0.6)
-    ax_signal.plot(time, signal[1,:], label='Y Signal', color='blue', linewidth=.5, alpha=0.5)
-    ax_signal.plot(time, signal[2,:], label='Z Signal', color='maroon', linewidth=.5, alpha=0.4)
+    ax_signal.plot(time, signal[0,:], label='X Signal', color='black', linewidth=1., alpha=0.6)
+    ax_signal.plot(time, signal[1,:], label='Y Signal', color='blue', linewidth=1., alpha=0.6)
+    ax_signal.plot(time, signal[2,:], label='Z Signal', color='maroon', linewidth=1., alpha=0.6)
     ax_signal.set_xlabel('Time (h)')
     ax_signal.set_ylabel("Amplitude (g)")
     ax_signal.set_title("Raw Signal")
@@ -150,8 +149,6 @@ def plot_signal_and_online_predictions(time, signal, online_avg, window_length, 
         ax_signal.legend(loc='upper right', bbox_to_anchor=(1.26, 1.00), fontsize=25)
 
 
-
-
     # Plot the online predictions
     scatter = ax_online.scatter(X_flat, Y_flat, c=color_flat, cmap='Blues', s=140, marker='s', alpha=0.7)
     ax_online.set_xlabel("Time (h)")
@@ -160,6 +157,8 @@ def plot_signal_and_online_predictions(time, signal, online_avg, window_length, 
     ax_online.set_ylim(-1, len(y))
     ax_online.set_title(f"Online Predictions, $s = {window_length}$")
 
+    # Share the x-axis between the two plots to ensure perfect alignment
+    ax_online.sharex(ax_signal)
 
     # Add colorbar to the scatter plot, placed in the separate axis
     cbar = plt.colorbar(scatter, cax=cbar_ax)
@@ -170,12 +169,13 @@ def plot_signal_and_online_predictions(time, signal, online_avg, window_length, 
     cbar_ax.set_position([pos.x0 - 0.02, pos.y0 + 0.01, pos.width, pos.height-0.01])
 
     # Adjust layout to fit everything
-    plt.tight_layout()  # Reduce right space for colorbar
+    # plt.tight_layout()  # Reduce right space for colorbar
 
     # Save plot if plot_dir is specified
-    if plot_dir is not None:
-        if not os.path.exists(plot_dir):
-            os.makedirs(plot_dir)  # Create directory if it doesn't exist
-        plt.savefig(os.path.join(plot_dir, f'window_length_{window_length}.png'), dpi=300, bbox_inches='tight')
+    if plot_path is not None:
+        if not os.path.exists(os.path.dirname(plot_path)):
+            os.makedirs(os.path.dirname(plot_path))  # Create directory if it doesn't exist
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     
+    plt.close(fig)
     return fig, (ax_signal, ax_online)

@@ -215,14 +215,15 @@ def match_metadata(row, metadata_df):
 
 def calibrate_RVC_data(df, metadata_df):
 
-    df['collar_number'] = 0.0
+    df.loc[:,'collar_number'] = 0.0
+    df.loc[:,'range'] = 0.0
     columns_to_modify = [
-        'Mean X', 'Mean Y', 'Mean Z',
-        'Max peak X', 'Max peak Y', 'Max peak Z',
-        'Mean peak X', 'Mean peak Y', 'Mean peak Z',
-        'collar_number'
+        'acc_x_ptp_max', 'acc_y_ptp_max', 'acc_z_ptp_max',
+        'acc_x_ptp_mean', 'acc_y_ptp_mean', 'acc_z_ptp_mean',
+        'acc_x_mean', 'acc_y_mean', 'acc_z_mean',
+        'collar_number', 'range'
     ]
-    df[columns_to_modify] = df[columns_to_modify].astype(float)
+    df.loc[:, columns_to_modify] = df[columns_to_modify].astype(float)
 
     # Step 0: preprocess metadata
     metadata_df['start_date_dd_mm_yyyy'] = pd.to_datetime(metadata_df['start_date_dd_mm_yyyy'], format='%d/%m/%Y', errors='coerce')
@@ -237,6 +238,7 @@ def calibrate_RVC_data(df, metadata_df):
         start = meta_row['start_date_dd_mm_yyyy']
         end = meta_row['end_date_dd_mm_yyyy']
         collar = meta_row['collar_number']
+        range_value = meta_row['range']
 
         sensitivity_X = meta_row['sensitivity_X']
         sensitivity_Y = meta_row['sensitivity_Y']
@@ -249,7 +251,7 @@ def calibrate_RVC_data(df, metadata_df):
         if pd.isna(start) and pd.isna(end):
             mask = df['animal_id'] == aid
         elif pd.notna(start) and pd.notna(end):
-            mask = (df['animal_id'] == aid) & (df['UTC time'] >= start) & (df['UTC time'] <= end)
+            mask = (df['animal_id'] == aid) & (df['UTC time [yyyy-mm-dd HH:MM:SS]'] >= start) & (df['UTC time [yyyy-mm-dd HH:MM:SS]'] <= end)
         else:
             continue  # skip if only one of start/end is missing
 
@@ -265,18 +267,19 @@ def calibrate_RVC_data(df, metadata_df):
         if mask.any():
             # Assign calibrated and collar values
             df.loc[mask, 'collar_number'] = collar
+            df.loc[mask, 'range'] = range_value
 
-            df.loc[mask, 'Mean X'] = df.loc[mask, 'Mean X'].apply(lambda x: (x - offset_X) / sensitivity_X)
-            df.loc[mask, 'Mean Y'] = df.loc[mask, 'Mean Y'].apply(lambda x: (x - offset_Y) / sensitivity_Y)
-            df.loc[mask, 'Mean Z'] = df.loc[mask, 'Mean Z'].apply(lambda x: (x - offset_Z) / sensitivity_Z)
+            df.loc[mask, 'acc_x_ptp_max'] = df.loc[mask, 'acc_x_ptp_max'].apply(lambda x: (x - offset_X) / sensitivity_X)
+            df.loc[mask, 'acc_y_ptp_max'] = df.loc[mask, 'acc_y_ptp_max'].apply(lambda x: (x - offset_Y) / sensitivity_Y)
+            df.loc[mask, 'acc_z_ptp_max'] = df.loc[mask, 'acc_z_ptp_max'].apply(lambda x: (x - offset_Z) / sensitivity_Z)
 
-            df.loc[mask, 'Max peak X'] = df.loc[mask, 'Max peak X'].apply(lambda x: x / sensitivity_X)
-            df.loc[mask, 'Max peak Y'] = df.loc[mask, 'Max peak Y'].apply(lambda x: x / sensitivity_Y)
-            df.loc[mask, 'Max peak Z'] = df.loc[mask, 'Max peak Z'].apply(lambda x: x / sensitivity_Z)
+            df.loc[mask, 'acc_x_ptp_mean'] = df.loc[mask, 'acc_x_ptp_mean'].apply(lambda x: x / sensitivity_X)
+            df.loc[mask, 'acc_y_ptp_mean'] = df.loc[mask, 'acc_y_ptp_mean'].apply(lambda x: x / sensitivity_Y)
+            df.loc[mask, 'acc_z_ptp_mean'] = df.loc[mask, 'acc_z_ptp_mean'].apply(lambda x: x / sensitivity_Z)
 
-            df.loc[mask, 'Mean peak X'] = df.loc[mask, 'Mean peak X'].apply(lambda x: x / sensitivity_X)
-            df.loc[mask, 'Mean peak Y'] = df.loc[mask, 'Mean peak Y'].apply(lambda x: x / sensitivity_Y)
-            df.loc[mask, 'Mean peak Z'] = df.loc[mask, 'Mean peak Z'].apply(lambda x: x / sensitivity_Z)
+            df.loc[mask, 'acc_x_mean'] = df.loc[mask, 'acc_x_mean'].apply(lambda x: x / sensitivity_X)
+            df.loc[mask, 'acc_y_mean'] = df.loc[mask, 'acc_y_mean'].apply(lambda x: x / sensitivity_Y)
+            df.loc[mask, 'acc_z_mean'] = df.loc[mask, 'acc_z_mean'].apply(lambda x: x / sensitivity_Z)
         else:
             print(f"No data found for animal_id {meta_row['animal_id']} in the date range {start} to {end}")
 
@@ -285,7 +288,7 @@ def calibrate_RVC_data(df, metadata_df):
     print(f"Number of rows without calibration metadata: {pd.isna(df['collar_number']).sum()}/{len(df)}")
 
     # Step 3: Drop rows that were not calibrated
-    df = df.dropna(subset=columns_to_modify)
+    df = df.dropna(subset=columns_to_modify).reset_index(drop=True)
 
     return df
 
@@ -354,6 +357,26 @@ def safe_convert_to_list(x):
         return json.loads(x)
     except (TypeError, json.JSONDecodeError):
         return x  # Leave it unchanged if it can't be parsed
+
+def threshold_RVC(df):
+    # Columns and corresponding bounds
+    ptp_cols_max = ["acc_x_ptp_max", "acc_y_ptp_max", "acc_z_ptp_max"]
+    ptp_cols_mean = ["acc_x_ptp_mean", "acc_y_ptp_mean", "acc_z_ptp_mean"]
+    mean_cols = ["acc_x_mean", "acc_y_mean", "acc_z_mean"]
+
+    n = len(df)
+
+    # Apply thresholds for ptp max and ptp mean (±2 * range)
+    for col in ptp_cols_max + ptp_cols_mean:
+        df = df[(df[col] >= 0) & (df[col] <= 2 * df["range"])]
+
+    # Apply thresholds for mean (±range)  
+    for col in mean_cols:
+        df = df[(df[col] >= -df["range"]) & (df[col] <= df["range"])]
+
+    print(f"Number of outliers removed: {n - len(df)}/{n}.")
+
+    return df
 
 
 if __name__ == "__main__":

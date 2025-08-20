@@ -1,7 +1,11 @@
 from scipy.stats import wasserstein_distance
 import numpy as np
 import ot
-from sklearn.preprocessing import MinMaxScaler
+from scipy.spatial.distance import cdist
+import tqdm as tqdm
+import random
+import torch
+
 
 def sliced_wasserstein_distance(X, Y, num_directions=500, seed=None):
     """
@@ -55,3 +59,50 @@ def ot_align(X1, X2, reg=0.1):
     # Project Xt into Xs space via barycentric mapping
     X2_proj = G.T @ X1
     return X2_proj, sinkhorn_dist
+
+
+def rbf_kernel(X, Y, sigma=1.0):
+    """Compute the RBF (Gaussian) kernel between two sets of vectors."""
+    dists = cdist(X, Y, 'sqeuclidean')
+    return np.exp(-dists / (2 * sigma ** 2))
+
+def compute_mmd(X, Y, sigma=1.0):
+    """Biased estimator of MMD², guaranteed to be ≥ 0."""
+    K_XX = rbf_kernel(X, X, sigma)
+    K_YY = rbf_kernel(Y, Y, sigma)
+    K_XY = rbf_kernel(X, Y, sigma)
+
+    mmd2 = K_XX.mean() + K_YY.mean() - 2 * K_XY.mean()
+    return mmd2
+
+def mmd_test(X, Y, sigma=1.0, num_permutations=1000, seed=None):
+    """Two-sample test using MMD with permutation test to get p-value."""
+    rng = np.random.default_rng(seed)
+    n, m = len(X), len(Y)
+    Z = np.vstack([X, Y])
+    observed_mmd = compute_mmd(X, Y, sigma=sigma)
+
+    permuted_mmds = []
+    for _ in (range(num_permutations)):
+        idx = rng.permutation(n + m)
+        X_perm = Z[idx[:n]]
+        Y_perm = Z[idx[n:]]
+        permuted_mmds.append(compute_mmd(X_perm, Y_perm, sigma=sigma))
+
+    p_value = np.mean([mmd >= observed_mmd for mmd in permuted_mmds])
+    return observed_mmd, permuted_mmds, p_value
+
+def median_pairwise_distance(X, Y):
+    Z = np.vstack([X, Y])
+    dists = cdist(Z, Z, 'euclidean')
+    return np.median(dists[np.triu_indices_from(dists, k=1)])
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # for reproducibility
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False

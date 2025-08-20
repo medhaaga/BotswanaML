@@ -49,6 +49,19 @@ def get_metadata_path():
     path = os.path.join(data_path, 'metadata.csv')
     return path
 
+def get_RVC_preprocessed_path():
+    data_path = os.path.join(get_project_root(), 'data')
+    os.makedirs(data_path, exist_ok=True)
+    path = os.path.join(data_path, 'RVC_preprocessed.csv')
+    return path
+
+def get_Vectronics_preprocessed_path():
+    data_path = os.path.join(get_project_root(), 'data')
+    os.makedirs(data_path, exist_ok=True)
+    path = os.path.join(data_path, 'Vectronics_preprocessed.csv')
+    return path
+
+
 def get_video_labels_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)

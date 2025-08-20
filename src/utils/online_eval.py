@@ -12,6 +12,7 @@ import warnings
 import random as random
 sys.path.append('.')
 sys.path.append('../')
+sys.path.append('../../')
 
 from tqdm import tqdm
 import numpy as np
@@ -21,7 +22,7 @@ import torch.nn.functional as F
 import config as config
 from sklearn.preprocessing import LabelEncoder
 from src.utils.plots import plot_signal_and_online_predictions
-
+import src.utils.io as io
 # Script imports
 
 
@@ -37,8 +38,8 @@ def parse_arguments():
     parser.add_argument("--window_duration_percentile", type=float, default=50)
     parser.add_argument("--window_length", type=int, default=206)
     parser.add_argument("--score_hop_length", type=int, default=None)
-    parser.add_argument("--smoothening_window_length", type=int, default=10)
-    parser.add_argument("--smoothening_hop_length", type=int, default=5)
+    parser.add_argument("--smoothening_window_length", type=int, default=1)
+    parser.add_argument("--smoothening_hop_length", type=int, default=1)
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--experiment_name", type=str, default='no_split', choices=['no_split', 'interdog', 'interyear', 'interAMPM'])
     parser.add_argument("--kernel_size", type=int, default=5, help="size fo kernel for CNN")
@@ -46,26 +47,44 @@ def parse_arguments():
     parser.add_argument("--n_CNNlayers", type=int, default=5, help="number of convolution layers")
     parser.add_argument("--theta", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--dog", type=str, default='jessie', choices=['jessie', 'ash', 'palus', 'green', 'fossey'])
+    parser.add_argument("--individual", type=str, default='green', choices=['jessie', 'ash', 'palus', 'green', 'fossey'])
 
 
     return parser
 
-def online_smoothening(scores, window_len, hop_len):
+def online_smoothening(scores, start_times, window_len, hop_len):
 
     scores = scores.reshape(-1,scores.shape[-1]) #(number of classes, number of windows)
+
+    if scores.ndim == 1:
+        scores = scores.reshape(1, -1)
+
+    #  Validate that the number of timestamps matches the number of scores
+    if len(start_times) != scores.shape[1]:
+        raise ValueError("Length of start_times must match the number of scores.")
+
     n_windows = 1+ (scores.shape[-1] - window_len)//hop_len
 
     online_avg = np.zeros((scores.shape[0], n_windows))
+    midpoint_times = np.zeros(n_windows, dtype='datetime64[ns]')
 
     for i in range(n_windows):
-        start = i*hop_len
-        online_avg[:,i] = np.mean(scores[:, start:start+window_len], axis=-1)
+        start_idx = i * hop_len
+        end_idx = start_idx + window_len
+
+        online_avg[:,i] = np.mean(scores[:, start_idx:end_idx], axis=-1)
+
+        # Get the start time of the first element and the last element in the window
+        window_start_time = start_times[start_idx]
+        window_end_time = start_times[end_idx - 1] 
+
+        # Calculate the midpoint time of the window's time span
+        midpoint_times[i] = midpoint_times[i] = window_start_time + (window_end_time - window_start_time) / 2
         
-    return online_avg
+    return online_avg, midpoint_times
 
 
-def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_length=None, window_duration=None, dir=None, plot=False):
+def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_length=None, window_duration=None, smoothening_window_length=1, smoothening_hop_length=1, dir=None, plot=False):
 
     if (window_length is None) & (window_duration is None):
         raise ValueError('A window length/duratioon for the classification model is required.')
@@ -86,77 +105,99 @@ def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_l
     label_encoder = LabelEncoder()
     label_encoder.fit(RAW_BEHAVIORS)
 
-    for _, row in tqdm(metadata.iterrows(), total = len(metadata)):
+    # group by individual ID and date
+    grouped = metadata.groupby(["individual ID", "UTC Date [yyyy-mm-dd]"])
 
-        individual, half_day = row['individual ID'], row['half day [yyyy-mm-dd_am/pm]']
+    for (individual, date), group in tqdm(grouped, total=len(grouped)):
+        print(f"Processing individual={individual}, date={date}")
 
-        windows = []
-        half_day_acc = []
+        # load one or two half-day files
+        dfs = []
+        for _, row in group.iterrows():
+            df_half = pd.read_csv(row['file path'])
+            df_half['Timestamp'] = pd.to_datetime(df_half['Timestamp'], utc=True, format='%Y-%m-%d %H:%M:%S.%f')
+            dfs.append(df_half)
 
-        half_day_data = pd.read_csv(row['file path'])
-        half_day_data['Timestamp'] = pd.to_datetime(half_day_data['Timestamp'], utc=True)
+        # merge & sort
+        full_day_data = pd.concat(dfs, ignore_index=True).sort_values("Timestamp")
 
-        if len(half_day_data) < window_length:
-            warnings.warn(f'half day {individual}-{half_day} has lesser data than window length. Skipped.')
-        
+        if len(full_day_data) < window_length:
+            warnings.warn(f'{individual}-{date} has fewer samples than window length. Skipped.')
+            continue
+
         start_index = 0
+        # sliding windows
+        windows, acc_segments, acc_segment_start_times = [], [], []
 
-        while start_index + window_length < len(half_day_data):
+        while start_index + window_length < len(full_day_data):
 
             end_index = start_index  + window_length
-            window = half_day_data.iloc[start_index:end_index]
+            window = full_day_data.iloc[start_index:end_index]
 
             # Collect timestamps for start and end of the window
             window_start = window['Timestamp'].iloc[0]
             window_end = window['Timestamp'].iloc[-1]
-            windows.append({'Timestamp start': window_start, 'Timestamp end': window_end})
+            windows.append({'Timestamp start': window_start, 
+                            'Timestamp end': window_end})
 
             # Collect values for tensor
-            window_values = window[['Acc X [g]', 'Acc Y [g]', 'Acc Z [g]']].values
-            half_day_acc.append(window_values)
-
+            acc_segments.append(window[['Acc X [g]', 'Acc Y [g]', 'Acc Z [g]']].values)
+            acc_segment_start_times.append(window_start)
             start_index = end_index
 
         # Create DataFrame for windows
-        half_day_online_evals = pd.DataFrame(windows)
-        half_day_online_evals['individual ID'] = [individual]*len(half_day_online_evals)
+        evals = pd.DataFrame(windows)
+        evals['individual ID'] = individual
+        evals['UTC Date [yyyy-mm-dd]'] = date
 
         # Convert list of arrays to a PyTorch tensor
-        half_day_acc = np.array(half_day_acc).reshape(len(half_day_acc), window_length, 3)
-        half_day_acc = np.transpose(half_day_acc, (0,2,1)) # (number of windows, 3, window length)
-        half_day_acc = torch.tensor(half_day_acc, dtype=torch.float32)
+        acc_segments = np.array(acc_segments).reshape(len(acc_segments), window_length, 3)
+        acc_segments = np.transpose(acc_segments, (0,2,1)) # (number of windows, 3, window length)
+        acc_segments = torch.tensor(acc_segments, dtype=torch.float32)
 
         with torch.no_grad():
-            scores = model(half_day_acc.to(device))
+            scores = model(acc_segments.to(device))
 
-        half_day_online_evals['Prediction scores'] = np.max(F.softmax(scores, dim=1).cpu().numpy(), axis=1)
-        half_day_online_evals['Most probable behavior'] = label_encoder.inverse_transform(np.argmax(scores.cpu().numpy(), axis=1))
+        # results dataframe
+        evals['Prediction scores'] = np.max(F.softmax(scores, dim=1).cpu().numpy(), axis=1)
+        evals['Most probable behavior'] = label_encoder.inverse_transform(np.argmax(scores.cpu().numpy(), axis=1))
 
 
         if dir is not None:
             eval_dir = os.path.join(dir, 'evals')
             os.makedirs(eval_dir, exist_ok=True)
-            eval_path = os.path.join(eval_dir, os.path.basename(row['file path']))
-            half_day_online_evals.to_csv(eval_path, index=False)
+            eval_path = os.path.join(eval_dir, '_'.join(os.path.basename(row['file path']).split('_')[:-1])+'.csv')
+            evals.to_csv(eval_path, index=False)
 
             if plot is True:
 
-                scores = np.array(scores.unsqueeze(0).detach().cpu().numpy()) # (1, number of windows, number of classes)
-                scores = np.transpose(scores, (0,2,1))
-                online_avg = online_smoothening(scores, 1, 1)
+                # 1. Prepare scores array with shape (num_classes, num_windows)
+                scores_np = np.array(scores.unsqueeze(0).detach().cpu().numpy()) # (1, number of windows, number of classes)
+                scores_np = np.transpose(scores_np, (0,2,1))
+
+                # 2. Get the start timestamp for each score window from the 'evals' DataFrame
+                initial_start_times = evals['Timestamp start'].values
+
+                # 3. Call the smoothing function with the scores AND their timestamps
+                smoothed_scores, smoothed_start_times = online_smoothening(
+                    scores=scores_np,
+                    start_times=initial_start_times,
+                    window_len=smoothening_window_length,
+                    hop_len=smoothening_hop_length
+                )
+    
 
                 plot_dir = os.path.join(dir, 'plots')
                 os.makedirs(plot_dir, exist_ok=True)
-                plot_path = os.path.join(plot_dir, os.path.splitext(os.path.basename(row['file path']))[0]+'.png')
+                plot_path = os.path.join(plot_dir, '_'.join(os.path.basename(row['file path']).split('_')[:-1])+'.png')
                 plot_signal_and_online_predictions(
-                    half_day_data['Timestamp'], 
-                    np.array([half_day_data['Acc X [g]'].values, half_day_data['Acc Y [g]'].values, half_day_data['Acc Z [g]'].values]),
-                    online_avg, 
-                    window_length=1, 
-                    hop_length=1,  # Assuming hop_length is equal to window_length
-                    window_duration=window_duration, 
+                    time=full_day_data['Timestamp'], 
+                    signal=np.array([full_day_data['Acc X [g]'].values, full_day_data['Acc Y [g]'].values, full_day_data['Acc Z [g]'].values]),
+                    online_avg=smoothed_scores, 
+                    online_avg_times=smoothed_start_times,
+                    window_length=window_length, 
                     label_encoder=label_encoder, 
-                    plot_dir=plot_path, 
+                    plot_path=plot_path, 
                     half_day_behaviors=None
                 )
 
@@ -170,23 +211,33 @@ if __name__ == '__main__':
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+    
+    window_duration = args.window_duration
+    window_length = int(window_duration * config.SAMPLING_RATE)
 
-    model_config = {'experiment_name': args.experiment_name,
-                    'n_CNNlayers': args.n_CNNlayers,
-                    'n_channels': args.n_channels,
-                    'kernel_size': args.kernel_size,
-                    'theta': args.theta,
-                    'window_duration_percentile': args.window_duration_percentile
-                    }
+    model_dir = io.get_results_path('no_split', 3, 64, 5, 0.5, 50, with_trotting=False)
+    model = torch.load(os.path.join(model_dir, 'model.pt'), map_location=device)
 
-    smoothening_config = {'smoothening_window_length': args.smoothening_window_length,
-                          'smoothening_hop_length': args.smoothening_hop_length,
-                          'score_hop_length': args.score_hop_length
-                          }
+    metadata = pd.read_csv(io.get_metadata_path())
+    metadata = metadata[metadata['individual ID'] == args.individual]
+    metadata['UTC Date [yyyy-mm-dd]'] = pd.to_datetime( metadata['UTC Date [yyyy-mm-dd]'], format='%Y-%m-%d')
+
+    all_online_eval(model_dir=model_dir, 
+                    metadata=metadata, 
+                    device=device, 
+                    sampling_frequency=config.SAMPLING_RATE, 
+                    window_length=window_length,
+                    window_duration=window_duration, 
+                    smoothening_window_length=args.smoothening_window_length, 
+                    smoothening_hop_length=args.smoothening_hop_length,  
+                    dir=config.VECTRONICS_BEHAVIOR_EVAL_PATH, 
+                    plot=True)
 
 
-   
 
 
     
+
+
+        
 

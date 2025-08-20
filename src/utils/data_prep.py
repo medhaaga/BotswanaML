@@ -9,7 +9,6 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from pytz import timezone
-from datetime import timedelta
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from torch.utils.data import DataLoader, WeightedRandomSampler, TensorDataset
@@ -250,95 +249,6 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
 
     return acc_summary, acc_data, acc_data_metadata, annotations_summary
 
-
-def windowed_ptp_stats(arr, window=32):
-    n_full_windows = len(arr) // window
-    if n_full_windows == 0:
-        return np.nan, np.nan  # Not enough data
-
-    ptp_values = [np.ptp(arr[i*window:(i+1)*window]) for i in range(n_full_windows)]
-    return np.max(ptp_values), np.mean(ptp_values)
-
-# Apply to each column and create new stats columns
-def process_column(df, col, sampling_rate=16):
-    df[[f'{col}_ptp_max', f'{col}_ptp_mean']] = df[col].apply(
-        lambda arr: pd.Series(windowed_ptp_stats(arr, window=int(2*sampling_rate)))
-    )
-    return df
-
-def split_row(row, chunk_size=480, sampling_rate=16):
-    length = len(row['acc_x'])
-    n_chunks = length // chunk_size
-    remainder = length % chunk_size
-
-    chunks = []
-    for i in range(n_chunks):
-        start = i * chunk_size
-        end = start + chunk_size
-
-        chunks.append({
-            'behavior': row['behavior'],
-            'acc_x': row['acc_x'][start:end],
-            'acc_y': row['acc_y'][start:end],
-            'acc_z': row['acc_z'][start:end],
-            'duration': chunk_size / sampling_rate,
-            'Source': row['Source']
-        })
-
-    if remainder > 0:
-        chunks.append({
-            'behavior': row['behavior'],
-            'acc_x': row['acc_x'][-remainder:],
-            'acc_y': row['acc_y'][-remainder:],
-            'acc_z': row['acc_z'][-remainder:],
-            'duration': remainder / sampling_rate,
-            'Source': row['Source']
-        })
-
-    return chunks
-
-def create_max_windows(acc_data, window_duration=30.0, sampling_rate=16):
-    # Apply the splitting to all rows and flatten the result
-    split_chunks = []
-    for _, row in acc_data.iterrows():
-        split_chunks.extend(split_row(row, chunk_size=int(window_duration*sampling_rate), sampling_rate=sampling_rate))
-
-    # Create the new DataFrame
-    acc_data_split = pd.DataFrame(split_chunks)
-    return acc_data_split
-
-def create_summary_data(acc_data_split, sampling_rate=16):
-    acc_data_split['acc_x_mean'] = acc_data_split['acc_x'].apply(np.mean)
-    acc_data_split['acc_y_mean'] = acc_data_split['acc_y'].apply(np.mean)
-    acc_data_split['acc_z_mean'] = acc_data_split['acc_z'].apply(np.mean)
-
-    for col in ['acc_x', 'acc_y', 'acc_z']:
-        acc_data_split = process_column(acc_data_split, col, sampling_rate=sampling_rate)
-
-    return acc_data_split
-
-def create_data_splits(acc_data, feature_cols, test_size=0.2, val_size=0.25):
-    acc_data = acc_data.dropna()
-
-    X = acc_data[feature_cols].values
-    label_encoder = LabelEncoder()
-    y = label_encoder.fit_transform(acc_data['behavior'])
-
-    # First: train+val and test split
-    sss1 = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
-    train_val_idx, test_idx = next(sss1.split(X, y))
-
-    X_train_val, y_train_val = X[train_val_idx], y[train_val_idx]
-    X_test, y_test = X[test_idx], y[test_idx]  
-
-    # Second: train and val split from train_val
-    sss2 = StratifiedShuffleSplit(n_splits=1, test_size=val_size, random_state=42)
-    train_idx, val_idx = next(sss2.split(X_train_val, y_train_val))
-
-    X_train, y_train = X_train_val[train_idx], y_train_val[train_idx]
-    X_val, y_val = X_train_val[val_idx], y_train_val[val_idx]
-
-    return X_train, y_train, X_val, y_val, X_test, y_test
 
 def give_balanced_weights(theta, y):
     n_classes = len(np.unique(y))
