@@ -8,22 +8,39 @@ TIMEZONE = pytz.utc
 SAMPLING_RATE = 16
 
 # map fine behavior classifications in annottaions file to coarser behavior classes
-RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant', 
-                                    'Lying (head down)': 'Resting',
+RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary', 
+                                    'Lying (head down)': 'Stationary',
                                     'Walking': 'Moving',
                                     'Trotting': 'Moving',
                                     'Running': 'Running',
-                                    'Standing': 'Vigilant',
-                                    'Sitting':  'Vigilant',
-                                    'Marking (scent)': 'Marking',
+                                    'Standing': 'Stationary',
+                                    'Sitting':  'Stationary',
+                                    'Marking (scent)': 'Other',
                                     'Interaction': 'Other',
-                                    'Rolling': 'Marking',
+                                    'Rolling': 'Other',
                                     'Scratching': 'Other',
                                     'Drinking': 'Other',
                                     'Dig': 'Other',
                                     'Capture?': 'Other',
                                     'Eating': 'Feeding',
                                     }
+
+# {'Lying (head up)': 'Vigilant', 
+#                                     'Lying (head down)': 'Resting',
+#                                     'Walking': 'Moving',
+#                                     'Trotting': 'Moving',
+#                                     'Running': 'Running',
+#                                     'Standing': 'Vigilant',
+#                                     'Sitting':  'Vigilant',
+#                                     'Marking (scent)': 'Marking',
+#                                     'Interaction': 'Other',
+#                                     'Rolling': 'Marking',
+#                                     'Scratching': 'Other',
+#                                     'Drinking': 'Other',
+#                                     'Dig': 'Other',
+#                                     'Capture?': 'Other',
+#                                     'Eating': 'Feeding',
+#                                     }
 
 
 # no need to change these. We use it to map a separate encoding of individual ID to the globally used individual IDs
@@ -43,9 +60,9 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
                                     'Running': 'Running',
                                     'Standing': 'Stationary',
                                     'Sitting':  'Stationary',
-                                    'Marking (scent)': 'Marking',
+                                    'Marking (scent)': 'Other',
                                     'Interaction': 'Other',
-                                    'Rolling': 'Marking',
+                                    'Rolling': 'Other',
                                     'Scratching': 'Other',
                                     'Drinking': 'Other',
                                     'Dig': 'Other',
@@ -55,5 +72,6 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
 
 
 # behaviors of interest for classification 
-RAW_BEHAVIORS = ['Feeding', 'Moving', 'Resting', 'Running', 'Vigilant']
+RAW_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']
+
 SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Running', 'Stationary']

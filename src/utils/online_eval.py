@@ -34,7 +34,7 @@ from config.settings import (RAW_BEHAVIORS)
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--window_duration", type=float, default=12.937)
+    parser.add_argument("--window_duration", type=float, default=14.937)
     parser.add_argument("--window_duration_percentile", type=float, default=50)
     parser.add_argument("--window_length", type=int, default=206)
     parser.add_argument("--score_hop_length", type=int, default=None)
@@ -43,9 +43,9 @@ def parse_arguments():
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--experiment_name", type=str, default='no_split', choices=['no_split', 'interdog', 'interyear', 'interAMPM'])
     parser.add_argument("--kernel_size", type=int, default=5, help="size fo kernel for CNN")
-    parser.add_argument("--n_channels", type=int, default=32, help="number of output channels for the first CNN layer")
+    parser.add_argument("--n_channels", type=int, default=64, help="number of output channels for the first CNN layer")
     parser.add_argument("--n_CNNlayers", type=int, default=5, help="number of convolution layers")
-    parser.add_argument("--theta", type=float, default=0.9)
+    parser.add_argument("--theta", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--individual", type=str, default='green', choices=['jessie', 'ash', 'palus', 'green', 'fossey'])
 
@@ -54,7 +54,7 @@ def parse_arguments():
 
 def online_smoothening(scores, start_times, window_len, hop_len):
 
-    scores = scores.reshape(-1,scores.shape[-1]) #(number of classes, number of windows)
+    scores = scores.reshape(-1, scores.shape[-1]) #(number of classes, number of windows)
 
     if scores.ndim == 1:
         scores = scores.reshape(1, -1)
@@ -127,7 +127,7 @@ def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_l
 
         start_index = 0
         # sliding windows
-        windows, acc_segments, acc_segment_start_times = [], [], []
+        windows, acc_segments = [], []
 
         while start_index + window_length < len(full_day_data):
 
@@ -142,7 +142,6 @@ def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_l
 
             # Collect values for tensor
             acc_segments.append(window[['Acc X [g]', 'Acc Y [g]', 'Acc Z [g]']].values)
-            acc_segment_start_times.append(window_start)
             start_index = end_index
 
         # Create DataFrame for windows
@@ -173,7 +172,7 @@ def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_l
 
                 # 1. Prepare scores array with shape (num_classes, num_windows)
                 scores_np = np.array(scores.unsqueeze(0).detach().cpu().numpy()) # (1, number of windows, number of classes)
-                scores_np = np.transpose(scores_np, (0,2,1))
+                scores_np = np.transpose(scores_np, (0,2,1)) # (1, number of classes, number of windows)
 
                 # 2. Get the start timestamp for each score window from the 'evals' DataFrame
                 initial_start_times = evals['Timestamp start'].values
@@ -215,7 +214,7 @@ if __name__ == '__main__':
     window_duration = args.window_duration
     window_length = int(window_duration * config.SAMPLING_RATE)
 
-    model_dir = io.get_results_path('no_split', 3, 64, 5, 0.5, 50, with_trotting=False)
+    model_dir = io.get_results_path('no_split', args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta)
     model = torch.load(os.path.join(model_dir, 'model.pt'), map_location=device)
 
     metadata = pd.read_csv(io.get_metadata_path())

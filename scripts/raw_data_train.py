@@ -23,8 +23,7 @@ import torch.optim as optim
 
 from src.utils.train import (train_run)
 
-from src.utils.io import (format_time,
-                          get_results_path,
+from src.utils.io import (get_results_path,
                           get_metadata_path,
                           get_video_labels_path,
                           get_audio_labels_path,
@@ -39,8 +38,9 @@ from src.utils.data_prep import (setup_data_objects,
 
 
 from config.settings import (id_mapping,
-                             RAW_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING,
-                             RAW_BEHAVIORS_WO_TROTTING,)
+                             RAW_BEHAVIORS,
+                             RAW_COLLAPSE_BEHAVIORS_MAPPING
+                             )
 
 
 ##############################################
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(args.seed)
 
     # experiment directory 
-    dir = get_results_path(args.experiment_name, args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta, args.window_duration_percentile, with_trotting=False)
+    dir = get_results_path(args.experiment_name, args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta)
     os.makedirs(dir, exist_ok=True)
 
     ##############################################
@@ -110,15 +110,15 @@ if __name__ == '__main__':
 
 
     start = time.time()
-    X_train, y_train, z_train, X_val, y_val, z_val, X_test, y_test, z_test, _ = setup_data_objects(metadata, 
-                                                                                                    all_annotations, 
-                                                                                                    RAW_COLLAPSE_BEHAVIORS_MAPPING_WO_TROTTING, 
-                                                                                                    RAW_BEHAVIORS_WO_TROTTING, 
-                                                                                                    args, 
-                                                                                                    reuse_behaviors=RAW_BEHAVIORS_WO_TROTTING,
+    X_train, y_train, z_train, X_val, y_val, z_val, X_test, y_test, z_test, _ = setup_data_objects(metadata=metadata, 
+                                                                                                    all_annotations=all_annotations, 
+                                                                                                    collapse_behavior_mapping=RAW_COLLAPSE_BEHAVIORS_MAPPING,
+                                                                                                    behaviors=RAW_BEHAVIORS, 
+                                                                                                    args=args, 
+                                                                                                    reuse_behaviors=RAW_BEHAVIORS,
                                                                                                     acc_data_path=get_matched_data_path(),
                                                                                                     acc_metadata_path=get_matched_metadata_path()) 
-    
+
     
     print("Class distribution")
     print("==========================")

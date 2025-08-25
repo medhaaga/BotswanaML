@@ -798,7 +798,7 @@ def create_padded_or_truncated_data(df, fixed_length, padding='repeat', reuse_be
 
             reuse = row['behavior'] in reuse_behaviors
 
-            acc_x_windows = repeat_or_truncate_list(row['acc_x'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLqING_RATE)
+            acc_x_windows = repeat_or_truncate_list(row['acc_x'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLING_RATE)
             acc_y_windows = repeat_or_truncate_list(row['acc_y'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLING_RATE)
             acc_z_windows = repeat_or_truncate_list(row['acc_z'], fixed_length, reuse=reuse, min_length=min_duration*config.SAMPLING_RATE)
 

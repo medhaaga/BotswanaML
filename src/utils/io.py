@@ -71,7 +71,7 @@ def get_video_labels_path():
 def get_audio_labels_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, '2025_08_01_awd_audio_annotations.csv')
+    path = os.path.join(data_path, '2025_08_15_awd_audio_annotations.csv')
 
     return path
 
@@ -87,17 +87,13 @@ def get_results_dir():
     os.makedirs(path, exist_ok=True)
     return path
 
-def get_results_path(exp_name, n_CNNlayers, n_channels, kernel_size, theta, window_duration_percentile, with_trotting=True):
+def get_results_path(exp_name, n_CNNlayers, n_channels, kernel_size, theta):
     results_dir = get_results_dir()
     os.makedirs(results_dir, exist_ok=True)
-    if with_trotting:
-        levels = ['predictions', 'with_trotting', exp_name, 'conv_layers_'+str(n_CNNlayers), \
+    levels = ['predictions', exp_name, 'conv_layers_'+str(n_CNNlayers), \
                  'n_channels_'+str(n_channels), 'kernel_size_'+str(kernel_size), \
-                 'theta_'+str(theta), 'duration_'+str(window_duration_percentile)]
-    else:
-        levels = ['predictions', 'wo_trotting', exp_name, 'conv_layers_'+str(n_CNNlayers), \
-                'n_channels_'+str(n_channels), 'kernel_size_'+str(kernel_size), \
-                'theta_'+str(theta), 'duration_'+str(window_duration_percentile)]
+                 'theta_'+str(theta)]
+    
     return get_path(levels, results_dir)
 
 def get_online_pred_path(halfday):

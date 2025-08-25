@@ -92,7 +92,7 @@ def plot_signal_and_online_predictions(time, signal, online_avg, online_avg_time
     
     sns.set_style("whitegrid")  # Set seaborn style at the beginning
 
-    # 1. Convert all timestamps to datetime objects for plotting
+    # Convert all timestamps to datetime objects for plotting
     time = pd.to_datetime(time)
     x_online = pd.to_datetime(online_avg_times) # Use the passed-in midpoint timestamps
         
@@ -144,10 +144,7 @@ def plot_signal_and_online_predictions(time, signal, online_avg, online_avg_time
                               alpha=0.3)
         legend_handles = [Line2D([0], [0], marker='o', color='w', markerfacecolor=colors[behavior], markersize=10, alpha=0.3, label=behavior)
                     for behavior in label_encoder.classes_]
-        ax_signal.legend(handles=legend_handles, loc='upper right', bbox_to_anchor=(1.26, 1.00), fontsize=25)
-    else:
-        ax_signal.legend(loc='upper right', bbox_to_anchor=(1.26, 1.00), fontsize=25)
-
+    ax_signal.legend(handles=legend_handles, loc='upper right', bbox_to_anchor=(1.26, 1.00), fontsize=25)
 
     # Plot the online predictions
     scatter = ax_online.scatter(X_flat, Y_flat, c=color_flat, cmap='Blues', s=140, marker='s', alpha=0.7)
