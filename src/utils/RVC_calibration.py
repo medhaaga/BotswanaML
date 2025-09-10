@@ -217,11 +217,13 @@ def calibrate_RVC_data(df, metadata_df):
 
     df.loc[:,'collar_number'] = 0.0
     df.loc[:,'range'] = 0.0
+    df.loc[:,'firmware_major_version'] = 0.0
+
     columns_to_modify = [
         'acc_x_ptp_max', 'acc_y_ptp_max', 'acc_z_ptp_max',
         'acc_x_ptp_mean', 'acc_y_ptp_mean', 'acc_z_ptp_mean',
         'acc_x_mean', 'acc_y_mean', 'acc_z_mean',
-        'collar_number', 'range'
+        'collar_number', 'range', 'firmware_major_version'
     ]
     df.loc[:, columns_to_modify] = df[columns_to_modify].astype(float)
 
@@ -239,6 +241,7 @@ def calibrate_RVC_data(df, metadata_df):
         end = meta_row['end_date_dd_mm_yyyy']
         collar = meta_row['collar_number']
         range_value = meta_row['range']
+        firmware_major_version = meta_row['firmware_major_version']
 
         sensitivity_X = meta_row['sensitivity_X']
         sensitivity_Y = meta_row['sensitivity_Y']
@@ -268,18 +271,19 @@ def calibrate_RVC_data(df, metadata_df):
             # Assign calibrated and collar values
             df.loc[mask, 'collar_number'] = collar
             df.loc[mask, 'range'] = range_value
+            df.loc[mask, 'firmware_major_version'] = firmware_major_version
 
-            df.loc[mask, 'acc_x_ptp_max'] = df.loc[mask, 'acc_x_ptp_max'].apply(lambda x: (x - offset_X) / sensitivity_X)
-            df.loc[mask, 'acc_y_ptp_max'] = df.loc[mask, 'acc_y_ptp_max'].apply(lambda x: (x - offset_Y) / sensitivity_Y)
-            df.loc[mask, 'acc_z_ptp_max'] = df.loc[mask, 'acc_z_ptp_max'].apply(lambda x: (x - offset_Z) / sensitivity_Z)
+            df.loc[mask, 'acc_x_ptp_max'] = df.loc[mask, 'acc_x_ptp_max'].astype(float) / sensitivity_X
+            df.loc[mask, 'acc_y_ptp_max'] = df.loc[mask, 'acc_y_ptp_max'].astype(float) / sensitivity_Y
+            df.loc[mask, 'acc_z_ptp_max'] = df.loc[mask, 'acc_z_ptp_max'].astype(float) / sensitivity_Z
 
-            df.loc[mask, 'acc_x_ptp_mean'] = df.loc[mask, 'acc_x_ptp_mean'].apply(lambda x: x / sensitivity_X)
-            df.loc[mask, 'acc_y_ptp_mean'] = df.loc[mask, 'acc_y_ptp_mean'].apply(lambda x: x / sensitivity_Y)
-            df.loc[mask, 'acc_z_ptp_mean'] = df.loc[mask, 'acc_z_ptp_mean'].apply(lambda x: x / sensitivity_Z)
+            df.loc[mask, 'acc_x_ptp_mean'] = df.loc[mask, 'acc_x_ptp_mean'].astype(float) / sensitivity_X
+            df.loc[mask, 'acc_y_ptp_mean'] = df.loc[mask, 'acc_y_ptp_mean'].astype(float) / sensitivity_Y
+            df.loc[mask, 'acc_z_ptp_mean'] = df.loc[mask, 'acc_z_ptp_mean'].astype(float) / sensitivity_Z
 
-            df.loc[mask, 'acc_x_mean'] = df.loc[mask, 'acc_x_mean'].apply(lambda x: x / sensitivity_X)
-            df.loc[mask, 'acc_y_mean'] = df.loc[mask, 'acc_y_mean'].apply(lambda x: x / sensitivity_Y)
-            df.loc[mask, 'acc_z_mean'] = df.loc[mask, 'acc_z_mean'].apply(lambda x: x / sensitivity_Z)
+            df.loc[mask, 'acc_x_mean'] = df.loc[mask, 'acc_x_mean'].apply(lambda x: (x - offset_X) / sensitivity_X)
+            df.loc[mask, 'acc_y_mean'] = df.loc[mask, 'acc_y_mean'].apply(lambda x: (x - offset_Y) / sensitivity_Y)
+            df.loc[mask, 'acc_z_mean'] = df.loc[mask, 'acc_z_mean'].apply(lambda x: (x - offset_Z) / sensitivity_Z)
         else:
             print(f"No data found for animal_id {meta_row['animal_id']} in the date range {start} to {end}")
 

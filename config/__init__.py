@@ -10,6 +10,8 @@ from .paths import (RVC_MERGED_METADATA_PATH, VECTRONICS_ANNOTATIONS_PATH,
                         RVC_MERGED_METADATA_PATH,
                         AWD_VECTRONICS_PATHS,
                         VECTRONICS_BEHAVIOR_EVAL_PATH,
+                        VECTRONICS_SUMMARY_BEHAVIOR_EVAL_PATH,
+                        RVC_BEHAVIOR_EVAL_PATH,
                         BASE_DIR,
                         RVC_PREPROCESSING_YAML,
                         VECTRONICS_PREPROCESSING_YAML

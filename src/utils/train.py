@@ -4,9 +4,14 @@ import copy
 import torch
 import torch.nn.functional as F
 import time
+import torch.optim as optim
+import torch.nn as nn
+from torch.utils.data import DataLoader
 import src.utils.io as utils_io
 import tqdm as tqdm
 from tqdm import trange
+from src.methods.dann import FeatureExtractor, LabelClassifier, DomainClassifier, grad_reverse
+from src.utils.datasets import NumpyDataset
 
 def training_loop(model, optimizer, criterion, train_dataloader, device):
     """Training loop for CNN based behavior-prediction model
@@ -201,3 +206,106 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
     })
 
     return return_dict
+
+def train_dann(X_train, y_train, X_val, y_val, X_targets, n_classes,
+               batch_size=256, n_epochs=20, lr=1e-3,
+               lambda_domain=0.1,
+               device="cuda" if torch.cuda.is_available() else "cpu"):
+    
+
+    loader_src = DataLoader(NumpyDataset(X_train, y_train), batch_size=batch_size, shuffle=True, drop_last=True)
+    val_loader = DataLoader(NumpyDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
+
+    target_loaders = [
+        DataLoader(NumpyDataset(Xt), batch_size=batch_size, shuffle=True, drop_last=True)
+        for Xt in X_targets
+    ]
+
+    feat = FeatureExtractor(in_dim=X_train.shape[1]).to(device)
+    clf = LabelClassifier(in_dim=64, n_classes=n_classes).to(device)
+    dom = DomainClassifier(in_dim=64).to(device)
+
+    params = list(feat.parameters()) + list(clf.parameters()) + list(dom.parameters())
+    optimizer = optim.Adam(params, lr=lr, weight_decay=1e-4)
+
+    criterion_task = nn.CrossEntropyLoss()
+    criterion_dom = nn.CrossEntropyLoss()
+
+    history = {"task_loss": [], "domain_loss": [], "val_loss": []}
+    best_val_loss = float("inf")
+    best_models = None
+    best_val_preds, best_val_labels = None, None
+
+    progress_bar = trange(n_epochs, desc="Epochs", ncols=80)
+    for epoch in progress_bar:
+        feat.train(); clf.train(); dom.train()
+        loop = zip(loader_src, *target_loaders)
+        total_task, total_dom = 0, 0
+
+        for batch_tuple in loop:
+            (xs, ys) = batch_tuple[0]
+            xs, ys = xs.to(device), ys.to(device)
+
+            # Source supervised loss
+            feat_s = feat(xs)
+            logits_s = clf(feat_s)
+            loss_task = criterion_task(logits_s, ys)
+
+            # Collect all target batches
+            target_batches = [b[0].to(device) for b in batch_tuple[1:]]
+            feat_targets = [feat(xt) for xt in target_batches]
+            feat_t = torch.cat(feat_targets, dim=0)
+
+            # Domain labels
+            feat_dom = torch.cat([feat_s, feat_t], dim=0)
+            dom_labels = torch.cat([
+                torch.zeros(feat_s.size(0)),
+                torch.ones(feat_t.size(0))
+            ]).long().to(device)
+            dom_logits = dom(feat_dom, lambd=1.0)
+            loss_dom = criterion_dom(dom_logits, dom_labels)
+
+            # Combine losses
+            loss = loss_task + lambda_domain * loss_dom
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_task += loss_task.item()
+            total_dom += loss_dom.item()
+
+        # Compute validation loss
+        feat.eval(); clf.eval()
+        val_loss_total = 0
+        val_preds = []
+        val_labels = []
+        with torch.no_grad():
+            for vx, vy in val_loader:
+                vx, vy = vx.to(device), vy.to(device)
+                logits = clf(feat(vx))
+                loss_val = criterion_task(logits, vy)
+                val_loss_total += loss_val.item()
+                val_preds.append(torch.argmax(logits, dim=1).cpu())
+                val_labels.append(vy.cpu())
+        val_loss_avg = val_loss_total / len(val_loader)
+        val_preds = torch.cat(val_preds).numpy()
+        val_labels = torch.cat(val_labels).numpy()
+
+        history["task_loss"].append(total_task)
+        history["domain_loss"].append(total_dom)
+        history["val_loss"].append(val_loss_avg)
+
+        # Save best models
+        if val_loss_avg < best_val_loss:
+            best_val_loss = val_loss_avg
+            best_models = {"feature_extractor": feat,
+                           "label_classifier": clf,
+                           "domain_classifier": dom}
+            best_val_preds = val_preds
+            best_val_labels = val_labels
+
+
+        progress_bar.set_description(f"Epoch {epoch+1}/{n_epochs}  | task_loss={total_task:.3f} dom_loss={total_dom:.3f}")
+
+    return best_models, history, best_val_labels, best_val_preds

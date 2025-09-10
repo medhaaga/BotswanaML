@@ -19,48 +19,43 @@ def get_path(levels, main_dir):
             os.mkdir(path)
     return path
 
-def get_matched_data_path():
+def get_data_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'matched_acc_data.csv')
+    return data_path
+
+def get_matched_data_path():
+    path = os.path.join(get_data_path(), 'matched_acc_data.csv')
     return path
 
 def get_matched_metadata_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'matched_acc_metadata.csv')
+    path = os.path.join(get_data_path(), 'matched_acc_metadata.csv')
     return path
 
 def get_matched_annotations_summary_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'matched_annotations_summary.csv')
-    return path
+    path = os.path.join(get_data_path(), 'matched_annotations_summary.csv')
+    return path     
 
 def get_matched_summary_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'matched_acc_summary.csv')
+    path = os.path.join(get_data_path(), 'matched_acc_summary.csv')
     return path
 
 def get_metadata_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'metadata.csv')
+    path = os.path.join(get_data_path(), 'metadata.csv')
     return path
+
+def get_RVC_metadata_path():
+    path = os.path.join(get_data_path(), 'RVC_merged_metadata.xlsx')
+    return path
+
 
 def get_RVC_preprocessed_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'RVC_preprocessed.csv')
+    path = os.path.join(get_data_path(), 'RVC_preprocessed.csv')
     return path
 
-def get_Vectronics_preprocessed_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'Vectronics_preprocessed.csv')
+def get_Vectronics_preprocessed_path(duration):
+    path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration{duration}.csv')
     return path
-
 
 def get_video_labels_path():
     data_path = os.path.join(get_project_root(), 'data')
@@ -69,16 +64,11 @@ def get_video_labels_path():
     return path
 
 def get_audio_labels_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, '2025_08_15_awd_audio_annotations.csv')
-
+    path = os.path.join(get_data_path(), '2025_08_15_awd_audio_annotations.csv')
     return path
 
 def get_RVC_historic_data_path():
-    data_path = os.path.join(get_project_root(), 'data')
-    os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'RVC_historic_data.csv')
+    path = os.path.join(get_data_path(), 'RVC_historic_data.csv')
     return path
 
 def get_results_dir():
@@ -104,6 +94,7 @@ def get_online_pred_path(halfday):
 def get_figures_dir():
     current_path = get_project_root()
     path = os.path.join(current_path, 'figures')
+    os.makedirs(path, exist_ok=True)
     return path
 
 # utility functions
@@ -138,6 +129,17 @@ def get_test_metadata_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
     path = os.path.join(data_path, 'metadata.csv')
+    return path
+
+def get_results_dir():
+    current_path = get_project_root()
+    path = os.path.join(current_path, 'results')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def get_domain_adaptation_results_dir():
+    path = os.path.join(get_results_dir(), 'domain_adaptation_training_results')
+    os.makedirs(path, exist_ok=True)
     return path
 
 def get_test_results_dir():

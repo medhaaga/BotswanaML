@@ -36,4 +36,6 @@ AWD_VECTRONICS_PATHS = {'jessie': "/mnt/ssd/medhaaga/wildlife/Vectronics/2022_44
  'fossey': '/mnt/ssd/medhaaga/wildlife/Vectronics/2022_44907_Aqua_Fossey'}
 
 VECTRONICS_BEHAVIOR_EVAL_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/behavior_evaluations"
+RVC_BEHAVIOR_EVAL_PATH = "/mnt/ssd/medhaaga/wildlife/historic/behavior_evaluations"
+VECTRONICS_SUMMARY_BEHAVIOR_EVAL_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/behavior_evaluations_summary"
 

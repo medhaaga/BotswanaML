@@ -17,12 +17,14 @@ def preprocess_data(df, metadata_df, feature_cols, helper_cols, summary_dir=None
     df = remove_duplicates(df)
 
     # Calibration
+    print("Calibrating the RVC data...")
     df = calibrate_RVC_data(df, metadata_df)
     if summary_dir is not None:
         grouped_df = return_grouped_summary(df, metadata_df)
         grouped_df.to_csv(f"{summary_dir}/RVC_data_summary.csv", index=False)
 
     # Thresholding
+    print("Thresholding the RVC data...")
     df = threshold_RVC(df)
     if summary_dir is not None:
         grouped_df = return_grouped_summary(df, metadata_df)

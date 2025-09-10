@@ -46,8 +46,7 @@ def load_Vectronics_data_metadata():
     # convert timestamps to datetime objects
     acc_data['behavior_start'] = pd.to_datetime(acc_data['behavior_start'])
     acc_data['behavior_end'] = pd.to_datetime(acc_data['behavior_end'])
-    acc_data['UTC Date [yyyy-mm-dd]'] = pd.to_datetime(acc_data['UTC Date [yyyy-mm-dd]'], format='%Y-%m-%d')
-    acc_data.rename(columns={'UTC Date [yyyy-mm-dd]': 'UTC date [yyyy-mm-dd]'}, inplace=True)
+    acc_data['UTC date [yyyy-mm-dd]'] = pd.to_datetime(acc_data['UTC date [yyyy-mm-dd]'], format='%Y-%m-%d')
 
     # extract behaviors of interest
     acc_data = adjust_behavior_and_durations(acc_data, config.SUMMARY_COLLAPSE_BEHAVIORS_MAPPING, config.SUMMARY_BEHAVIORS)

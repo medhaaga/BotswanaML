@@ -5,6 +5,7 @@ sys.path.append('../')
 sys.path.append('../../')
 
 from datetime import datetime
+from datetime import timedelta
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -81,7 +82,7 @@ def combined_annotations(video_path, audio_path, id_mapping):
     return all_annotations
 
 
-def create_matched_data(filtered_metadata, annotations, verbose=True):
+def create_matched_data(filtered_metadata, annotations, verbose=True, min_window_for_padding=None, min_matched_duration=None):
     
     """Match the files in metadata with available annotations
 
@@ -156,7 +157,7 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
     """
     # create dataframes for saving matched acceleration and behavior data
 
-    cols = ['individual ID', 'behavior', 'behavior_start', 'behavior_end', 'duration', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 'acc_x', 'acc_y', 'acc_z', 'Source']
+    cols = ['individual ID', 'behavior', 'behavior_start', 'behavior_end', 'duration', 'year', 'UTC date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 'acc_x', 'acc_y', 'acc_z', 'Source']
     acc_data = pd.DataFrame(columns=cols, index=[])
     acc_data_metadata = pd.DataFrame(columns=filtered_metadata.columns, index=[])
     acc_summary = pd.DataFrame(columns=['id', 'date_am_pm_id', 'annotations', 'acc', 'number of matched acc'], index=[])
@@ -171,7 +172,7 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
 
     annotations_summary = annotations.copy()
     annotations_summary['match'] = 0
-    annotations_summary['matched_duration'] = 0
+    annotations_summary['matched_duration'] = 0.0
 
 
     # loop over all unique individuals in filtered_metadata
@@ -209,17 +210,31 @@ def create_matched_data(filtered_metadata, annotations, verbose=True):
                         acc_summary.loc[len(acc_summary)] = [individual, unique_period_loop, 0, 0.0, 0]
                         acc_summary.at[acc_summary.index[-1], 'annotations'] += (behaviour_end_time - behaviour_start_time).total_seconds() 
             
-                    if (not pd.isnull(behaviour_end_time)) & (behaviour_end_time > behaviour_start_time):          
+                    if (not pd.isnull(behaviour_end_time)) & (behaviour_end_time > behaviour_start_time):   
 
-                        # log the duration of audio avalilable for the behaviour
-
-                        behaviour_acc = acc_loop[(acc_loop['Timestamp'] >= behaviour_start_time) & (acc_loop['Timestamp'] <= behaviour_end_time)].sort_values('Timestamp')
-                        
-                        # log the duration of acc avalilable for the behaviour
+                        behaviour_acc = acc_loop[(acc_loop['Timestamp'] >= behaviour_start_time) &
+                             (acc_loop['Timestamp'] <= behaviour_end_time)].sort_values('Timestamp')
+                               
                         if len(behaviour_acc) > 0:
-
+                            
                             # duration of the acceleration data that is matched with the behavior
-                            matched_duration = (behaviour_acc.iloc[len(behaviour_acc)-1]['Timestamp'] - behaviour_acc.iloc[0]['Timestamp']).total_seconds()
+                            matched_duration = (behaviour_acc.iloc[-1]['Timestamp'] - behaviour_acc.iloc[0]['Timestamp']).total_seconds()
+
+                            if (min_matched_duration is not None) and (min_window_for_padding is not None) and (matched_duration < min_matched_duration) and (matched_duration >= min_window_for_padding):
+                                padding = (min_matched_duration - matched_duration) / 2.0
+                                padding = timedelta(seconds=padding)
+
+                                # Expand start and end times symmetrically
+                                start_time = behaviour_start_time - padding
+                                end_time = behaviour_end_time + padding
+                                acc_start, acc_end = acc_loop['Timestamp'].min(), acc_loop['Timestamp'].max()
+                                start_time = max(start_time, acc_start)
+                                end_time = min(end_time, acc_end)
+
+                                behaviour_acc = acc_loop[(acc_loop['Timestamp'] >= start_time) &
+                                     (acc_loop['Timestamp'] <= end_time)].sort_values('Timestamp')
+                                
+                                matched_duration = (behaviour_acc.iloc[-1]['Timestamp'] - behaviour_acc.iloc[0]['Timestamp']).total_seconds()
 
                             acc_summary.at[acc_summary.index[-1], 'acc'] += matched_duration
                             acc_summary.at[acc_summary.index[-1], 'number of matched acc'] += 1
@@ -962,11 +977,15 @@ if __name__ == '__main__':
     
     print(f"Total number of annotations: {len(all_annotations)}")
 
-    acc_summary, acc_data, acc_data_metadata, annotations_summary = create_matched_data(filtered_metadata=metadata, annotations=all_annotations, verbose=True)
+    acc_summary, acc_data, acc_data_metadata, annotations_summary = create_matched_data(filtered_metadata=metadata, 
+                                                                                        annotations=all_annotations, 
+                                                                                        verbose=True, 
+                                                                                        min_window_for_padding=None,
+                                                                                        min_matched_duration=None)
     acc_summary.to_csv(get_matched_summary_path(), index=False)
     acc_data.to_csv(get_matched_data_path(), index=False)
     acc_data_metadata.to_csv(get_matched_metadata_path(), index=False)
     annotations_summary.to_csv(get_matched_annotations_summary_path(), index=False)
 
-    # create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
+    create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
     

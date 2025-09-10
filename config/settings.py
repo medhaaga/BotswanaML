@@ -74,4 +74,4 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
 # behaviors of interest for classification 
 RAW_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']
 
-SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Running', 'Stationary']
+SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']

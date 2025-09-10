@@ -50,6 +50,7 @@ def preprocess_RVC_data(save_preprocessed_data=True):
         RVC_preprocessing_config = yaml.safe_load(f)
 
     # Load df
+    print("Loading the RVC data...")
     df = load_RVC_data()
 
     # Load metadata_df
@@ -65,6 +66,7 @@ def preprocess_RVC_data(save_preprocessed_data=True):
     )
 
     if save_preprocessed_data:
+        print("Saving the preprocessed RVC data...")
         df_preprocessed.to_csv(io.get_RVC_preprocessed_path(), index=False)
 
     return df_preprocessed
