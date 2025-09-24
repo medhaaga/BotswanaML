@@ -207,21 +207,13 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
 
     return return_dict
 
-def train_dann(X_train, y_train, X_val, y_val, X_targets, n_classes,
+def train_dann(train_loader, val_loader, target_loaders, n_classes,
                batch_size=256, n_epochs=20, lr=1e-3,
                lambda_domain=0.1,
                device="cuda" if torch.cuda.is_available() else "cpu"):
-    
 
-    loader_src = DataLoader(NumpyDataset(X_train, y_train), batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(NumpyDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
 
-    target_loaders = [
-        DataLoader(NumpyDataset(Xt), batch_size=batch_size, shuffle=True, drop_last=True)
-        for Xt in X_targets
-    ]
-
-    feat = FeatureExtractor(in_dim=X_train.shape[1]).to(device)
+    feat = FeatureExtractor(in_dim=next(iter(train_loader))[0].shape[1]).to(device)
     clf = LabelClassifier(in_dim=64, n_classes=n_classes).to(device)
     dom = DomainClassifier(in_dim=64).to(device)
 
@@ -239,7 +231,7 @@ def train_dann(X_train, y_train, X_val, y_val, X_targets, n_classes,
     progress_bar = trange(n_epochs, desc="Epochs", ncols=80)
     for epoch in progress_bar:
         feat.train(); clf.train(); dom.train()
-        loop = zip(loader_src, *target_loaders)
+        loop = zip(train_loader, *target_loaders)
         total_task, total_dom = 0, 0
 
         for batch_tuple in loop:
@@ -258,10 +250,9 @@ def train_dann(X_train, y_train, X_val, y_val, X_targets, n_classes,
 
             # Domain labels
             feat_dom = torch.cat([feat_s, feat_t], dim=0)
-            dom_labels = torch.cat([
-                torch.zeros(feat_s.size(0)),
-                torch.ones(feat_t.size(0))
-            ]).long().to(device)
+            dom_labels = torch.cat([torch.zeros(feat_s.size(0), device=device),
+                                    torch.ones(feat_t.size(0), device=device)
+                                ]).long()
             dom_logits = dom(feat_dom, lambd=1.0)
             loss_dom = criterion_dom(dom_logits, dom_labels)
 
@@ -286,10 +277,11 @@ def train_dann(X_train, y_train, X_val, y_val, X_targets, n_classes,
                 logits = clf(feat(vx))
                 loss_val = criterion_task(logits, vy)
                 val_loss_total += loss_val.item()
-                val_preds.append(torch.argmax(logits, dim=1).cpu())
+                val_preds.append(torch.argmax(logits, dim=1))
                 val_labels.append(vy.cpu())
+                
         val_loss_avg = val_loss_total / len(val_loader)
-        val_preds = torch.cat(val_preds).numpy()
+        val_preds = torch.cat(val_preds).cpu().numpy()
         val_labels = torch.cat(val_labels).numpy()
 
         history["task_loss"].append(total_task)

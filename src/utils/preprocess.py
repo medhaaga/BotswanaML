@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def signed_log(x: np.ndarray) -> np.ndarray:
     """Signed log transform for zero-centered features."""
@@ -36,19 +37,45 @@ def compute_combined_quantiles(datasets,
 
     return lows, highs
 
-def transform_and_scale(X, pos_idx, center_idx, lows, highs,
-                        clip_to_quantile=True):
-    X = X.astype(float).copy()
-    if pos_idx:
-        X[:, pos_idx] = np.log1p(X[:, pos_idx])
-    if center_idx:
-        X[:, center_idx] = signed_log(X[:, center_idx])
+class TransformAndScale:
+    def __init__(self, pos_idx, center_idx, lows, highs, clip_to_quantile=True):
 
-    denom = highs - lows
-    denom[denom == 0] = 1.0
-    X_scaled = -1.0 + 2.0 * (X - lows) / denom
+        self.pos_idx = pos_idx
+        self.center_idx = center_idx
+        self.clip_to_quantile = clip_to_quantile
 
-    if clip_to_quantile:
-        np.clip(X_scaled, -1.0, 1.0, out=X_scaled)
+        self.lows = torch.tensor(lows, dtype=torch.float32)
+        self.highs = torch.tensor(highs, dtype=torch.float32)
 
-    return X_scaled
+        self.denom = self.highs - self.lows
+        self.denom[self.denom == 0] = 1.0
+
+    def signed_log(self, x):
+        return np.sign(x) * np.log1p(np.abs(x))
+
+    def __call__(self, X):
+        lows = self.lows.to(X.device)
+        highs = self.highs.to(X.device)
+        denom = self.denom.to(X.device)
+
+        X = X.clone().float()
+
+        # add batch dim if sample is 1D
+        if X.ndim == 1:
+            X = X.unsqueeze(0)
+
+        if self.pos_idx:
+            X[:, self.pos_idx] = torch.log1p(X[:, self.pos_idx])
+        if self.center_idx:
+            X[:, self.center_idx] = self.signed_log(X[:, self.center_idx])
+
+        X_scaled = -1.0 + 2.0 * (X - lows) / denom
+
+        if self.clip_to_quantile:
+            X_scaled = torch.clamp(X_scaled, -1.0, 1.0)
+
+        # remove batch dim if input was 1D
+        if X_scaled.shape[0] == 1:
+            X_scaled = X_scaled.squeeze(0)
+
+        return X_scaled

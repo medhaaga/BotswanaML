@@ -11,11 +11,13 @@ from src.utils import preprocess
 from src.utils.train import train_dann
 import pandas as pd
 import src.utils.io as io   
+import src.utils.datasets as datasets
 import config as config
 from src.utils.plots import plot_feature_histograms
 from sklearn.preprocessing import LabelEncoder
 from src.eval.eval_utils import evaluate_label_distribution
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -70,8 +72,12 @@ def main():
     vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(min_duration_before_padding))
     X_src = vectronics_df[Vectronics_feature_cols].values
     y_src = vectronics_df['behavior'].values
+
+    # encode the labels
     label_encoder = LabelEncoder()
     y_src = label_encoder.fit_transform(y_src)
+    n_classes = len(np.unique(y_src))
+
 
     print("Loading target data (RVC)...")
     RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
@@ -79,31 +85,60 @@ def main():
                 RVC_df.loc[RVC_df.firmware_major_version == 3.0, Vectronics_feature_cols].values]
 
     # --------------------------
-    # Preprocess (compute quantiles using all domains)
+    # create datasets and dataloaders 
     # --------------------------
+
+    # compute global lows/highs once
     lows, highs = preprocess.compute_combined_quantiles(
-        datasets=[X_src], pos_idx=args.pos_idx, center_idx=args.center_idx,
-        low_q=0.00, high_q=1.00,
+        datasets=[X_src],
+        pos_idx=args.pos_idx,
+        center_idx=args.center_idx,
+        low_q=0.00,
+        high_q=1.00,
     )
-    X_src_prep = preprocess.transform_and_scale(X_src, args.pos_idx, args.center_idx, lows, highs)
-    X_targets_prep = [preprocess.transform_and_scale(Xt, args.pos_idx, args.center_idx, lows, highs)
-                    for Xt in X_targets]
-    X_train, X_val, y_train, y_val = train_test_split(X_src_prep, y_src, test_size=args.val_frac, random_state=42, stratify=y_src)
-    
-    if args.plot_hists:
-        plot_feature_histograms(X_src, X_targets, fname=os.path.join(io.get_figures_dir(), "raw_feature_hists.png"))
-        plot_feature_histograms(X_src_prep, X_targets_prep, fname=os.path.join(io.get_figures_dir(), "preprocessed_feature_hists.png"))
+    # define transform
+    transform = preprocess.TransformAndScale(
+        pos_idx=args.pos_idx,
+        center_idx=args.center_idx,
+        lows=lows,
+        highs=highs
+    )
 
+    # split BEFORE wrapping in Dataset (so you can stratify properly)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_src,
+        y_src,
+        test_size=args.val_frac,
+        random_state=42,
+        stratify=y_src
+    )
+     
+    print(f"Train data: {X_train.shape}")
+    print(f"Val data: {X_val.shape}")
+    for i, Xt in enumerate(X_targets):
+        print(f"Target data {i+1}: {Xt.shape}")
+    print(f"Number of classes: {n_classes}")
 
-    print(f"Source data shape: {X_src_prep.shape}")
-    for i, Xt in enumerate(X_targets_prep):
-        print(f"Target data {i+1} shape: {Xt.shape}")
-    print(f"Number of classes: {len(np.unique(y_src))}")
+    # Build datasets
+    train_dataset = datasets.NumpyDataset(X=X_train, y=y_train, transform=transform)
+    val_dataset   = datasets.NumpyDataset(X=X_val, y=y_val, transform=transform)
+
+    # Build dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    target_loaders = [
+        DataLoader(datasets.NumpyDataset(X=Xt, y=None, transform=transform), batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
+        for Xt in X_targets
+    ]
+    for loader in target_loaders:
+        batch = next(iter(loader))
+        print(batch[0].shape, batch[1].shape)
 
     # ---------------- Train DANN ----------------
-    n_classes = len(np.unique(y_src))
     best_models, history, best_val_labels, best_val_preds = train_dann(
-        X_train, y_train, X_val, y_val, X_targets_prep,
+        train_loader=train_loader, 
+        val_loader=val_loader, 
+        target_loaders=target_loaders,
         n_classes=n_classes,
         n_epochs=args.epochs,
         batch_size=args.batch_size,
@@ -127,9 +162,13 @@ def main():
     print(f"Objects saved to {dir}")
 
     # Evaluate on target domains
-    for i, Xt in enumerate(X_targets_prep):
-        evaluate_label_distribution(best_models['feature_extractor'], best_models['label_classifier'], Xt, n_classes, device=device,
-                                    domain_name=f"Target{i+1}", label_encoder=label_encoder)
+    for loader in target_loaders:
+        _ = evaluate_label_distribution(feat_model=best_models['feature_extractor'], 
+                                        clf_model=best_models['label_classifier'], 
+                                        data=loader,
+                                        n_classes=n_classes, 
+                                        label_encoder=label_encoder,
+                                        device=device, )
 
 
 if __name__ == "__main__":

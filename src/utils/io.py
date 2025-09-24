@@ -137,6 +137,12 @@ def get_results_dir():
     os.makedirs(path, exist_ok=True)
     return path
 
+def get_sightings_dir():
+    results_dir = get_results_dir()
+    sightings_dir = os.path.join(results_dir, 'sightings')
+    os.makedirs(sightings_dir, exist_ok=True)
+    return sightings_dir
+
 def get_domain_adaptation_results_dir():
     path = os.path.join(get_results_dir(), 'domain_adaptation_training_results')
     os.makedirs(path, exist_ok=True)
