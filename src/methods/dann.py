@@ -57,3 +57,19 @@ class DomainClassifier(nn.Module):
     def forward(self, h, lambd=1.0):
         h_rev = grad_reverse(h, lambd)
         return self.net(h_rev)
+    
+# DANN Model Container
+
+class DANNModel(nn.Module):
+    """A container for the three DANN networks to make them compatible with train_run."""
+    def __init__(self, feature_extractor, label_classifier, domain_classifier):
+        super().__init__()
+        self.feature_extractor = feature_extractor
+        self.label_classifier = label_classifier
+        self.domain_classifier = domain_classifier
+
+    def forward(self, x):
+        """The forward pass for inference/validation uses only the feature extractor and label classifier."""
+        features = self.feature_extractor(x)
+        logits = self.label_classifier(features)
+        return logits

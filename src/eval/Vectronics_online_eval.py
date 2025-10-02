@@ -85,7 +85,7 @@ def online_smoothening(scores, start_times, window_len, hop_len):
     return online_avg, midpoint_times
 
 
-def all_online_eval(model_dir, metadata, device, sampling_frequency=16, window_length=None, window_duration=None, smoothening_window_length=1, smoothening_hop_length=1, dir=None, plot=False):
+def all_online_raw_eval(model_dir, metadata, device, sampling_frequency=16, window_length=None, window_duration=None, smoothening_window_length=1, smoothening_hop_length=1, dir=None, plot=False):
 
     if (window_length is None) & (window_duration is None):
         raise ValueError('A window length/duratioon for the classification model is required.')
@@ -379,23 +379,23 @@ if __name__ == '__main__':
     window_duration = args.window_duration
     window_length = int(window_duration * config.SAMPLING_RATE)
 
-    # model_dir = io.get_results_path('no_split', args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta)
-    # model = torch.load(os.path.join(model_dir, 'model.pt'), map_location=device)
+    model_dir = io.get_results_path('no_split', args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta)
+    model = torch.load(os.path.join(model_dir, 'model.pt'), map_location=device)
 
     metadata = pd.read_csv(io.get_metadata_path())
     metadata = metadata[metadata['individual ID'] == args.individual]
     metadata['UTC Date [yyyy-mm-dd]'] = pd.to_datetime( metadata['UTC Date [yyyy-mm-dd]'], format='%Y-%m-%d')
 
-    # all_online_eval(model_dir=model_dir, 
-    #                 metadata=metadata, 
-    #                 device=device, 
-    #                 sampling_frequency=config.SAMPLING_RATE, 
-    #                 window_length=window_length,
-    #                 window_duration=window_duration, 
-    #                 smoothening_window_length=args.smoothening_window_length, 
-    #                 smoothening_hop_length=args.smoothening_hop_length,  
-    #                 dir=config.VECTRONICS_BEHAVIOR_EVAL_PATH, 
-    #                 plot=True)
+    all_online_raw_eval(model_dir=model_dir, 
+                    metadata=metadata, 
+                    device=device, 
+                    sampling_frequency=config.SAMPLING_RATE, 
+                    window_length=window_length,
+                    window_duration=window_duration, 
+                    smoothening_window_length=args.smoothening_window_length, 
+                    smoothening_hop_length=args.smoothening_hop_length,  
+                    dir=config.VECTRONICS_BEHAVIOR_EVAL_PATH, 
+                    plot=True)
     
     # extract_feeding_events(config.VECTRONICS_BEHAVIOR_EVAL_PATH)
     window_duration = 30.0
@@ -412,7 +412,7 @@ if __name__ == '__main__':
     #                         smoothening_hop_length=1, 
     #                         plot=True, 
     #                         dir=config.VECTRONICS_SUMMARY_BEHAVIOR_EVAL_PATH)
-    extract_feeding_events(config.VECTRONICS_SUMMARY_BEHAVIOR_EVAL_PATH)
+    # extract_feeding_events(config.VECTRONICS_SUMMARY_BEHAVIOR_EVAL_PATH)
     
 
 

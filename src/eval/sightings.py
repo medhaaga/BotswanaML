@@ -483,10 +483,11 @@ def make_sightings_plots_from_dann(matched_sightings: pd.DataFrame, device: str 
 
     return results
 
-def make_sightings_plots_from_weak_labels(
+def make_sightings_plots_from_labels(
         matched_sightings: pd.DataFrame,
         RVC_df: pd.DataFrame,
-        verbose: bool = False
+        verbose: bool = False,
+        label_name: str = "weak labels"
     ) -> int:
     """
     Generate and save signal plots with weak labels for each animal-day.
@@ -518,10 +519,11 @@ def make_sightings_plots_from_weak_labels(
     feature_cols = vectronics_config["feature_cols"]
 
     # Create plot directory
-    plot_dir = os.path.join(io.get_sightings_dir(), "weak labels", "eval_plots")
+    plot_dir = os.path.join(io.get_sightings_dir(), label_name, "eval_plots")
     os.makedirs(plot_dir, exist_ok=True)
 
     for (animal_id, date), sighting_df in tqdm(grouped, desc="Processing animal-days"):
+
         # Subset to day-specific data
         day_data = RVC_df[
             (RVC_df["animal_id"] == animal_id)

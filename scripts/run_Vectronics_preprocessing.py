@@ -8,9 +8,7 @@ sys.path.append('../../')
 import src.utils.io as io
 
 
-from src.utils.Vectronics_preprocessing import (
-                                                load_Vectronics_data_metadata,
-                                                create_max_windows,
+from src.utils.Vectronics_preprocessing import (create_max_windows,
                                                 create_summary_data,
                                                 load_annotations)
 import config as config
@@ -53,4 +51,4 @@ def preprocess_Vectronics_data(save_preprocessed_data=True, min_window_for_paddi
 
 if __name__ == '__main__':
 
-    _ = preprocess_Vectronics_data(save_preprocessed_data=True, min_window_for_padding=10.0)
+    _ = preprocess_Vectronics_data(save_preprocessed_data=True, min_window_for_padding=15.0)

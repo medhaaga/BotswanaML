@@ -80,7 +80,7 @@ def get_results_dir():
 def get_results_path(exp_name, n_CNNlayers, n_channels, kernel_size, theta):
     results_dir = get_results_dir()
     os.makedirs(results_dir, exist_ok=True)
-    levels = ['predictions', exp_name, 'conv_layers_'+str(n_CNNlayers), \
+    levels = ['raw_training_results', exp_name, 'conv_layers_'+str(n_CNNlayers), \
                  'n_channels_'+str(n_channels), 'kernel_size_'+str(kernel_size), \
                  'theta_'+str(theta)]
     

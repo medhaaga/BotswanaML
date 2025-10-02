@@ -21,7 +21,7 @@ import torch.optim as optim
 
 # Script imports
 
-from src.utils.train import (train_run)
+from src.utils.train import (standard_training_epoch, train_run)
 
 from src.utils.io import (get_results_path,
                           get_metadata_path,
@@ -55,7 +55,7 @@ def parse_arguments():
     parser.add_argument("--n_CNNlayers", type=int, default=3, help="number of convolution layers")
     parser.add_argument("--window_duration_percentile", type=int, default=50, help="audio duration cutoff percentile")
     parser.add_argument("--num_epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=.0001)
     parser.add_argument("--weight_decay", type=float, default=.0001)
     parser.add_argument("--normalization", type=int, default=0)
@@ -90,6 +90,7 @@ if __name__ == '__main__':
 
     # experiment directory 
     dir = get_results_path(args.experiment_name, args.n_CNNlayers, args.n_channels, args.kernel_size, args.theta)
+    print(dir)
     os.makedirs(dir, exist_ok=True)
 
     ##############################################
@@ -157,29 +158,39 @@ if __name__ == '__main__':
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
-    train_obj = train_run(model, optimizer, criterion, train_dataloader, val_dataloader, test_dataloader, args, device)
-    model = train_obj['model']
-    training_stats = train_obj['training_stats']
+    results = train_run(model=model, optimizer=optimizer, 
+              criterion=criterion, 
+              train_dataloader=train_dataloader, 
+              val_dataloader=val_dataloader, 
+              test_dataloader=test_dataloader,
+              args=args, device=device, 
+              training_epoch_fn=standard_training_epoch)
 
+    model = results['model']
 
     #############################################
     ###### Save objects
     ##############################################
 
     torch.save(model, os.path.join(dir, 'model.pt'))
+    
     json_training_stats_file = os.path.join(dir, 'training_stats.json')
     with open(json_training_stats_file, 'w') as f:
-        json.dump(training_stats, f)
+        json.dump(results['training_stats'], f, indent=4)
 
-    # save true and predicted validation classes along with val metadata
-    np.save(os.path.join(dir, 'val_true_classes.npy'),  train_obj['val_true_classes'])
-    np.save(os.path.join(dir, 'val_predictions.npy'),  train_obj['val_predictions'])
-    np.save(os.path.join(dir, 'val_scores.npy'),  train_obj['val_scores'])
-    z_test.to_csv(os.path.join(dir, 'val_metadata.csv'))
+    # Save test results
+    test_results_path = os.path.join(dir, 'test_results.npz')
+    np.savez(
+    test_results_path,
+    true_classes=results['test_true_classes'],
+    predictions=results['test_predictions'],
+    scores=results['test_scores'])
 
+    # Save val results
+    val_results_path = os.path.join(dir, 'val_results.npz')
+    np.savez(
+        val_results_path,
+        true_classes=results['val_true_classes'],
+        predictions=results['val_predictions'],
+        scores=results['val_scores'])
 
-    # save true and predicted validation classes along with val metadata
-    np.save(os.path.join(dir, 'test_true_classes.npy'),  train_obj['test_true_classes'])
-    np.save(os.path.join(dir, 'test_predictions.npy'),  train_obj['test_predictions'])
-    np.save(os.path.join(dir, 'test_scores.npy'),  train_obj['test_scores'])
-    z_test.to_csv(os.path.join(dir, 'test_metadata.csv'))

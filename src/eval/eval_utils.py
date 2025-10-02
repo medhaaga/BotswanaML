@@ -3,8 +3,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-def evaluate_label_distribution(feat_model, clf_model, data, n_classes, label_encoder, 
-                                device="cpu", batch_size=1024, num_workers=0, pin_memory=True, verbose=False):
+def evaluate_label_distribution(model, data, n_classes, label_encoder, 
+                                device="cpu", batch_size=1024, num_workers=0, pin_memory=True, verbose=True):
     """
     Apply trained models to target data, print predicted label distribution,
     and return both softmax scores and class probabilities.
@@ -40,11 +40,7 @@ def evaluate_label_distribution(feat_model, clf_model, data, n_classes, label_en
     else:
         loader = data
 
-    feat_model = feat_model.to(device)
-    clf_model = clf_model.to(device)
-    
-    feat_model.eval()
-    clf_model.eval()
+    model.eval()
 
     all_preds, all_softmax = [], []
 
@@ -54,17 +50,15 @@ def evaluate_label_distribution(feat_model, clf_model, data, n_classes, label_en
             X_batch = batch[0] if isinstance(batch, (list, tuple)) else batch
             X_batch = X_batch.to(device).float()
 
-            features = feat_model(X_batch)
-            logits = clf_model(features)
-
-            preds = torch.argmax(logits, dim=1)
-            all_preds.append(preds)
-            softmax_scores = F.softmax(logits, dim=1)
-            all_softmax.append(softmax_scores)
+            model_output = model(X_batch)
+            outputs = model_output[1] if isinstance(model_output, tuple) else model_output
+            predictions = torch.argmax(outputs, dim=1)
+            all_preds.append(predictions.cpu().numpy())
+            all_softmax.append(F.softmax(outputs, dim=1).cpu().numpy())
 
     # Concatenate all batch predictions and softmax scores
-    all_preds = torch.cat(all_preds, dim=0).cpu().numpy()
-    all_softmax = torch.cat(all_softmax, dim=0).cpu().numpy()
+    all_preds = np.concatenate(all_preds)
+    all_softmax = np.concatenate(all_softmax)
 
     # Compute label distribution
     counts = np.bincount(all_preds, minlength=n_classes)

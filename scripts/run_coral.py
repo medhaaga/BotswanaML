@@ -9,7 +9,7 @@ import argparse
 import numpy as np
 import torch
 from src.utils import preprocess
-from src.utils.train import train_dann
+from src.utils.train import train_coral, multi_label_eval_loop
 import pandas as pd
 import src.utils.io as io   
 import src.utils.datasets as datasets
@@ -32,20 +32,19 @@ def parse_arguments():
     parser.add_argument("--n_sample_per_target", type=int, default=200000,
                         help="Number of samples to draw from each target for computing mean/std")
 
+    # ---------------- Model ----------------
+    parser.add_argument("--feat_dim", type=int, default=128,
+                        help="Dimension of feature extractor's hidden layer")
+
     # ---------------- Training ----------------
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
-    parser.add_argument("--lambda_domain", type=float, default=1.0, help="Weight for domain loss")
+    parser.add_argument("--lambda_coral", type=float, default=1.0, help="Weight for domain loss")
     parser.add_argument("--test_frac", type=float, default=0.2, help="Fraction of train set to reserve for validation")
 
-        # ---------------- Model ----------------
-    parser.add_argument("--hidden_dim", type=int, default=128,
-                        help="Dimension of feature extractor's hidden layer")
 
     # ---------------- Output ----------------
-    parser.add_argument("--plot_hists", action="store_true",
-                        help="Whether to save histograms before and after preprocessing")
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
 
@@ -58,7 +57,7 @@ def main():
     parser = parse_arguments()
     args = parser.parse_args()
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    dir = os.path.join(io.get_domain_adaptation_results_dir(), "dann")
+    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "coral")
     os.makedirs(dir, exist_ok=True)
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
@@ -77,7 +76,9 @@ def main():
     vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(min_duration_before_padding))
     X_src = vectronics_df[Vectronics_feature_cols].values
     y_src = vectronics_df['behavior'].values
-    args.input_dim, args.n_classes = X_src.shape[-1], len(np.unique(y_src))
+
+    args.input_dim = X_src.shape[-1]
+    args.n_classes = len(np.unique(y_src))
 
     # encode the labels
     label_encoder = LabelEncoder()
@@ -115,6 +116,8 @@ def main():
      
     print(f"Train data: {X_train.shape}")
     print(f"Val data: {X_val.shape}")
+    for i, Xt in enumerate(X_targets):
+        print(f"Target data {i+1}: {Xt.shape}")
     print(f"Number of classes: {n_classes}")
 
     # Build datasets
@@ -132,43 +135,47 @@ def main():
         for Xt in X_targets
     ]
 
-    # ---------------- Train DANN ----------------
-    results = train_dann(train_loader, val_loader, test_loader, target_loaders, args, device)
-    model = results['model']
+    for i, loader in enumerate(target_loaders):
 
-    #############################################
-    ###### Save objects
-    ##############################################
+        # ---------------- Train DANN ----------------
+        results = train_coral(train_loader, val_loader, test_loader, loader, args, device)
+        model = results['model']
 
-    torch.save(model, os.path.join(dir, 'model.pt'))
-    
-    json_training_stats_file = os.path.join(dir, 'training_stats.json')
-    with open(json_training_stats_file, 'w') as f:
-        json.dump(results['training_stats'], f, indent=4)
+        #############################################
+        ###### Save objects
+        ##############################################
 
-    # Save test results
-    test_results_path = os.path.join(dir, 'test_results.npz')
-    np.savez(
-    test_results_path,
-    true_classes=results['test_true_classes'],
-    predictions=results['test_predictions'],
-    scores=results['test_scores'])
+        dir = os.path.join(root_dir, f'target{i+1}')
+        os.makedirs(dir, exist_ok=True)
 
-    # Save val results
-    val_results_path = os.path.join(dir, 'val_results.npz')
-    np.savez(
-        val_results_path,
-        true_classes=results['val_true_classes'],
-        predictions=results['val_predictions'],
-        scores=results['val_scores'])
+        torch.save(model, os.path.join(dir, 'model.pt'))
+        
+        json_training_stats_file = os.path.join(dir, 'training_stats.json')
+        with open(json_training_stats_file, 'w') as f:
+            json.dump(results['training_stats'], f, indent=4)
 
-    # Evaluate on target domains
-    for loader in target_loaders:
+        # Save test results
+        test_results_path = os.path.join(dir, 'test_results.npz')
+        np.savez(
+        test_results_path,
+        true_classes=results['test_true_classes'],
+        predictions=results['test_predictions'],
+        scores=results['test_scores'])
+
+        # Save val results
+        val_results_path = os.path.join(dir, 'val_results.npz')
+        np.savez(
+            val_results_path,
+            true_classes=results['val_true_classes'],
+            predictions=results['val_predictions'],
+            scores=results['val_scores'])
+
+        # Evaluate on target domains
         _ = evaluate_label_distribution(model=model, 
-                                        data=loader,
-                                        n_classes=n_classes, 
-                                        label_encoder=label_encoder,
-                                        device=device, )
+                                            data=loader,
+                                            n_classes=n_classes, 
+                                            label_encoder=label_encoder,
+                                            device=device, )
 
 
 if __name__ == "__main__":

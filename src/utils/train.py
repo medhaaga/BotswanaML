@@ -1,303 +1,321 @@
 import numpy as np
 import copy
+import time
 # Torch
 import torch
-import torch.nn.functional as F
-import time
-import torch.optim as optim
 import torch.nn as nn
-from torch.utils.data import DataLoader
-import src.utils.io as utils_io
+import torch.nn.functional as F
+import torch.optim as optim
+# TQDM
 import tqdm as tqdm
 from tqdm import trange
-from src.methods.dann import FeatureExtractor, LabelClassifier, DomainClassifier, grad_reverse
-from src.utils.datasets import NumpyDataset
 
-def training_loop(model, optimizer, criterion, train_dataloader, device):
-    """Training loop for CNN based behavior-prediction model
+from src.utils import io as utils_io
+from src.methods.coral import coral_loss, SimpleFeatureNet
+from src.methods.dann import DANNModel, FeatureExtractor, LabelClassifier, DomainClassifier
 
-    Arguments
-    ----------------
-    model: torch.nn module
-    optimizer: torch.optim object
-    criterion: torch loss criterion
-    train_dataloader: torch DataLoader
-    device: torch.device object
+    
+#############################################
+###### Reusable Training & Eval Loops
+##############################################
 
-    Returns
-    ----------------
-    train_loss: float
+def standard_training_epoch(model, optimizer, criterion, train_dataloader, device, args):
     """
-
+    Performs one epoch of standard training.
+    This was the original 'training_loop' function.
+    """
     train_loss = 0
-
     for batch_X, batch_y in train_dataloader:
-
-        # Forward pass
-        outputs = model(batch_X.to(device))
+        batch_X, batch_y = batch_X.to(device), batch_y.to(device)
         
-        # Calculate the loss
-        loss = criterion(outputs, batch_y.to(device))
-        train_loss += loss.cpu().item()
+        # Forward pass
+        outputs = model(batch_X)
+        
+        # Calculate loss
+        loss = criterion(outputs, batch_y)
+        train_loss += loss.item()
         
         # Backward pass and optimization
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
+        
     return train_loss
 
-def eval_loop(model, criterion, X, y, device):
+def dann_training_epoch(model, optimizer, criterion, train_dataloader, device, args, **kwargs):
+    """Performs one epoch of training using the DANN loss."""
+    target_loaders = kwargs.get('target_loaders')
+    if not target_loaders:
+        raise ValueError("dann_training_epoch requires 'target_loaders' in kwargs.")
+    
+    criterion_task = criterion
+    criterion_dom = nn.CrossEntropyLoss()
+    
+    # Unpack the model components from the container
+    feat, clf, dom = model.feature_extractor, model.label_classifier, model.domain_classifier
+    
+    total_task_loss = 0
+    total_dom_loss = 0
+    
+    for batch_tuple in zip(train_dataloader, *target_loaders):
+        (source_x, source_y) = batch_tuple[0]
+        source_x, source_y = source_x.to(device), source_y.to(device)
+        
+        # 1. Task loss on source data
+        source_features = feat(source_x)
+        source_logits = clf(source_features)
+        loss_task = criterion_task(source_logits, source_y)
 
-    with torch.no_grad():
+        # 2. Domain loss on source and target data
+        target_features_list = [feat(b[0].to(device)) for b in batch_tuple[1:]]
+        target_features = torch.cat(target_features_list, dim=0)
 
-        outputs = F.softmax(model(X.to(device)), dim=1)
-        predictions = torch.argmax(outputs, dim=1)
-        test_loss = criterion(outputs, y.to(device)).cpu().item()
+        domain_features = torch.cat([source_features, target_features], dim=0)
+        domain_labels = torch.cat([
+            torch.zeros(source_features.size(0), device=device),
+            torch.ones(target_features.size(0), device=device)
+        ]).long()
+        
+        domain_logits = dom(domain_features, lambd=1.0) # Pass lambda for GRL
+        loss_dom = criterion_dom(domain_logits, domain_labels)
+        
+        # 3. Combine losses and backpropagate
+        loss = loss_task + args.lambda_domain * loss_dom # lambda is applied inside GRL
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        total_task_loss += loss_task.item()
+        total_dom_loss += loss_dom.item()
 
-    return test_loss, predictions.cpu(), outputs.cpu()
+    # Return task loss for consistent logging with validation loss
+    return total_task_loss
+
+def coral_training_epoch(model, optimizer, criterion, train_dataloader, device, args, **kwargs):
+    """
+    Performs one epoch of training using the CORAL loss for domain adaptation.
+    """
+    # The main criterion is for the task loss
+    criterion_task = criterion
+    criterion_coral = coral_loss
+    
+    # Retrieve the target_loader from kwargs
+    target_loader = kwargs.get('target_loader')
+    if not target_loader:
+        raise ValueError("coral_training_epoch requires a 'target_loader' in kwargs.")
+
+    total_task_loss = 0
+    total_coral_loss = 0
+    
+    # Ensure the loop stops when the shorter dataloader is exhausted
+    for (source_x, source_y), (target_x, _) in zip(train_dataloader, target_loader):
+        source_x, source_y = source_x.to(device), source_y.to(device)
+        target_x = target_x.to(device)
+
+        # Forward pass for both source and target
+        src_feat, src_logits = model(source_x)
+        target_feat, _ = model(target_x)
+
+        # Calculate losses
+        loss_task = criterion_task(src_logits, source_y)
+        loss_coral = criterion_coral(src_feat, target_feat)
+
+        # Combine losses with the lambda hyperparameter
+        loss = loss_task + args.lambda_coral * loss_coral
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_task_loss += loss_task.item()
+        total_coral_loss += loss_coral.item()
+
+    # We return the task loss to be consistent with validation loss metric
+    return total_task_loss
+
+
+#############################################
+###### Reusable Eval Loop
+##############################################
 
 def multi_label_eval_loop(model, criterion, dataloader, device):
-    """Evaluation loop for CNN based behavior-prediction model
-
-    Arguments
-    ----------------
-    model: torch.nn module
-    criterion: torch loss criterion
-    dataloader: torch DataLoader
-    device: torch.device object
-
-    Returns
-    ----------------
-    loss: float
-    true_labels: torch tensor B * 1; B = batch size
-    predicted_labels: torch tensor B * 1; B = batch size
-    scores: torch tensor B * K; B = batch size, K = number of classes
-    """
 
     loss = 0
     true_labels, predicted_labels, scores = [], [], []
-    with torch.no_grad():
 
+    with torch.no_grad():
         for inputs, labels in dataloader:
 
-            outputs = model(inputs.to(device))
-            predictions = torch.argmax(outputs, dim=1)
-            loss += criterion(outputs, labels.to(device)).cpu().item()
-            true_labels.append(torch.argmax(labels, dim=1).cpu().numpy())
-            predicted_labels.append(predictions.cpu().numpy())
-            scores.append(outputs.cpu().numpy())
+            inputs, labels = inputs.to(device), labels.to(device)
+            model_output = model(inputs)
 
-        loss = loss/len(dataloader)
+            # Handle models that return tuples (e.g., features, logits)
+            outputs = model_output[1] if isinstance(model_output, tuple) else model_output
+            predictions = torch.argmax(outputs, dim=1)
+            loss += criterion(outputs, labels).cpu().item()
+            true_labels.append(torch.argmax(labels, dim=1).cpu().numpy() if len(labels.shape) > 1 else labels.cpu().numpy())
+            predicted_labels.append(predictions.cpu().numpy())
+            scores.append(F.softmax(outputs, dim=1).cpu().numpy())
+
+        loss /= len(dataloader)
         true_labels = np.concatenate(true_labels)
         predicted_labels = np.concatenate(predicted_labels)
         scores = np.concatenate(scores)
 
-
     return loss, true_labels, predicted_labels, scores
 
+
 #############################################
-###### Training & Saving 
+###### GENERALIZED Training Runner
 ##############################################
 
-def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, test_dataloader, args, device):
+def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, test_dataloader,
+              args, device, training_epoch_fn, **kwargs):
+    """
+    A generalized training run that accepts a custom function for the training epoch logic.
 
+    Arguments
+    ----------------
+    ...
+    training_epoch_fn: function
+        A function that executes one training epoch. It should accept (model, optimizer,
+        criterion, train_dataloader, device, args, **kwargs) and return the total training loss for the epoch.
+    **kwargs:
+        Additional keyword arguments to be passed to the training_epoch_fn (e.g., target_loader).
+    """
     epochs = args.num_epochs
-
-    avg_train_losses, avg_test_losses = [], []
-    best_val_loss = 100
+    best_val_loss = float('inf')
+    best_model_state_dict = None
+    best_test_outputs = {}
+    return_dict = {}
     training_stats = []
-    return_dict = {'model': None,
-                    'training_stats': None,
-                    'test_true_classes': None,
-                    'test_predictions': None,
-                    'test_scores': None,
-                    'val_true_classes': None,
-                    'val_predictions': None,
-                    'val_scores': None
-                    } 
-
+    
     start_time = time.time()
-
     progress_bar = trange(epochs, desc="Initializing...")
 
     for epoch in progress_bar:
-
         model.train()
-
         t0 = time.time()
 
-        total_train_loss = training_loop(model, optimizer, criterion, train_dataloader, device=device)
+        # Call the provided training function for one epoch
+        total_train_loss = training_epoch_fn(
+            model=model,
+            optimizer=optimizer,
+            criterion=criterion,
+            train_dataloader=train_dataloader,
+            device=device,
+            args=args,
+            **kwargs
+        )
 
         t1 = time.time()
-
         model.eval()
 
-        with torch.no_grad():
-            val_loss, val_true_classes, val_predictions, val_scores = multi_label_eval_loop(model, criterion, val_dataloader, device=device)
-
-        t2 = time.time()
+        val_loss, val_true_classes, val_predictions, val_scores = multi_label_eval_loop(model, criterion, val_dataloader, device)
         
+        t2 = time.time()
+
         if val_loss < best_val_loss:
-
-            # calculate test scores
-            with torch.no_grad():
-                test_loss, test_true_classes, test_predictions, test_scores = multi_label_eval_loop(model, criterion, test_dataloader, device=device)
-
-            best_val_loss, best_val_predictions, best_val_scores = val_loss, val_predictions, val_scores
+            best_val_loss = val_loss
             best_model_state_dict = copy.deepcopy(model.state_dict())
+
+            test_loss, test_true_classes, test_predictions, test_scores = multi_label_eval_loop(model, criterion, test_dataloader, device)
+
             best_test_outputs = {
+                'test_loss': test_loss,
                 'test_true_classes': test_true_classes,
                 'test_predictions': test_predictions,
                 'test_scores': test_scores
             }
 
-            return_dict = {'model': model,
-                            'test_true_classes': test_true_classes,
-                            'test_predictions': test_predictions,
-                            'test_scores': test_scores,
-                            'val_true_classes': val_true_classes,
-                            'val_predictions': best_val_predictions,
-                            'val_scores': best_val_scores
-                            } 
+            return_dict.update({
+                'val_true_classes': val_true_classes,
+                'val_predictions': val_predictions,
+                'val_scores': val_scores
+            })
 
+        avg_train_loss = total_train_loss / len(train_dataloader)
+        progress_bar.set_description(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f} | Best Val Loss: {best_val_loss:.4f}")
         
-        # save train and test loss every 10 epochs 
-        
-        avg_train_loss = total_train_loss/len(train_dataloader)
-        avg_train_losses.append(avg_train_loss)
-        avg_test_losses.append(val_loss)
-
-        progress_bar.set_description(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f} | Best val Loss: {best_val_loss:.4f}")
-
-        if args.verbose and (epoch == 0 or (epoch+1)%10 == 0):
-            print("")
-            print(f'========= Epoch {epoch+1}/{epochs} ==========')
-            print(f"Average train loss: {avg_train_loss}")
-            print(f" Average val loss: {val_loss}")    
-            print(f" Best val loss: {best_val_loss}, best test loss: {test_loss}")   
-
-        training_stats.append(
-        {
+        training_stats.append({
             "epoch": epoch + 1,
             "Training Loss": avg_train_loss,
             "Validation Loss": val_loss,
             "Training Time": utils_io.format_time(t1 - t0),
             "Validation Time": utils_io.format_time(t2 - t1),
-        }
-        ) 
+        })
 
-    end_time = time.time()
-    print(f'Total training time: {utils_io.format_time(end_time-start_time)}')   
+    print(f'Total training time: {utils_io.format_time(time.time() - start_time)}')
 
     # Restore best model state
-    if best_model_state_dict is not None:
+    if best_model_state_dict:
         model.load_state_dict(best_model_state_dict)
-
+    
     return_dict.update({
         'model': model,
         'training_stats': training_stats,
-        'test_true_classes': best_test_outputs['test_true_classes'],
-        'test_predictions': best_test_outputs['test_predictions'],
-        'test_scores': best_test_outputs['test_scores'],
-        'val_true_classes': val_true_classes,
-        'val_predictions': best_val_predictions,
-        'val_scores': best_val_scores
+        **best_test_outputs
     })
-
+    
     return return_dict
 
-def train_dann(train_loader, val_loader, target_loaders, n_classes,
-               batch_size=256, n_epochs=20, lr=1e-3,
-               lambda_domain=0.1,
-               device="cuda" if torch.cuda.is_available() else "cpu"):
+
+#############################################
+###### Simplified Trainer Functions
+##############################################
 
 
-    feat = FeatureExtractor(in_dim=next(iter(train_loader))[0].shape[1]).to(device)
-    clf = LabelClassifier(in_dim=64, n_classes=n_classes).to(device)
-    dom = DomainClassifier(in_dim=64).to(device)
-
-    params = list(feat.parameters()) + list(clf.parameters()) + list(dom.parameters())
-    optimizer = optim.Adam(params, lr=lr, weight_decay=1e-4)
-
+def train_coral(train_loader, val_loader, test_loader, target_loader, args, device):
+    """
+    Sets up and runs the training for a domain adaptation model using CORAL.
+    This function now uses the generic train_run.
+    """
+    # 1. Initialize Model, Optimizer, and Criterion
+    model = SimpleFeatureNet(args.input_dim, args.feat_dim, args.n_classes).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     criterion_task = nn.CrossEntropyLoss()
-    criterion_dom = nn.CrossEntropyLoss()
 
-    history = {"task_loss": [], "domain_loss": [], "val_loss": []}
-    best_val_loss = float("inf")
-    best_models = None
-    best_val_preds, best_val_labels = None, None
+    # 2. Call the generic training run with the CORAL-specific epoch function
+    training_results = train_run(
+        model=model,
+        optimizer=optimizer,
+        criterion=criterion_task,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        test_dataloader=test_loader,
+        args=args,
+        device=device,
+        training_epoch_fn=coral_training_epoch,  
+        target_loader=target_loader              
+    )
 
-    progress_bar = trange(n_epochs, desc="Epochs", ncols=80)
-    for epoch in progress_bar:
-        feat.train(); clf.train(); dom.train()
-        loop = zip(train_loader, *target_loaders)
-        total_task, total_dom = 0, 0
+    return training_results
 
-        for batch_tuple in loop:
-            (xs, ys) = batch_tuple[0]
-            xs, ys = xs.to(device), ys.to(device)
+def train_dann(train_loader, val_loader, test_loader, target_loaders, args, device):
+    """Sets up and runs training for a DANN model."""
+    # 1. Initialize the three separate networks
+    feat = FeatureExtractor(in_dim=args.input_dim, hidden_dim=args.hidden_dim).to(device)
+    clf = LabelClassifier(in_dim=args.hidden_dim, n_classes=args.n_classes).to(device)
+    dom = DomainClassifier(in_dim=args.hidden_dim).to(device)
+    
+    # 2. Wrap them in the DANNModel container
+    dann_model = DANNModel(feat, clf, dom).to(device)
+    
+    # 3. Create optimizer over all parameters in the container
+    optimizer = optim.Adam(dann_model.parameters(), lr=args.learning_rate)
+    criterion_task = nn.CrossEntropyLoss()
 
-            # Source supervised loss
-            feat_s = feat(xs)
-            logits_s = clf(feat_s)
-            loss_task = criterion_task(logits_s, ys)
-
-            # Collect all target batches
-            target_batches = [b[0].to(device) for b in batch_tuple[1:]]
-            feat_targets = [feat(xt) for xt in target_batches]
-            feat_t = torch.cat(feat_targets, dim=0)
-
-            # Domain labels
-            feat_dom = torch.cat([feat_s, feat_t], dim=0)
-            dom_labels = torch.cat([torch.zeros(feat_s.size(0), device=device),
-                                    torch.ones(feat_t.size(0), device=device)
-                                ]).long()
-            dom_logits = dom(feat_dom, lambd=1.0)
-            loss_dom = criterion_dom(dom_logits, dom_labels)
-
-            # Combine losses
-            loss = loss_task + lambda_domain * loss_dom
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            total_task += loss_task.item()
-            total_dom += loss_dom.item()
-
-        # Compute validation loss
-        feat.eval(); clf.eval()
-        val_loss_total = 0
-        val_preds = []
-        val_labels = []
-        with torch.no_grad():
-            for vx, vy in val_loader:
-                vx, vy = vx.to(device), vy.to(device)
-                logits = clf(feat(vx))
-                loss_val = criterion_task(logits, vy)
-                val_loss_total += loss_val.item()
-                val_preds.append(torch.argmax(logits, dim=1))
-                val_labels.append(vy.cpu())
-                
-        val_loss_avg = val_loss_total / len(val_loader)
-        val_preds = torch.cat(val_preds).cpu().numpy()
-        val_labels = torch.cat(val_labels).numpy()
-
-        history["task_loss"].append(total_task)
-        history["domain_loss"].append(total_dom)
-        history["val_loss"].append(val_loss_avg)
-
-        # Save best models
-        if val_loss_avg < best_val_loss:
-            best_val_loss = val_loss_avg
-            best_models = {"feature_extractor": feat,
-                           "label_classifier": clf,
-                           "domain_classifier": dom}
-            best_val_preds = val_preds
-            best_val_labels = val_labels
-
-
-        progress_bar.set_description(f"Epoch {epoch+1}/{n_epochs}  | task_loss={total_task:.3f} dom_loss={total_dom:.3f}")
-
-    return best_models, history, best_val_labels, best_val_preds
+    # 4. Call the generic training run with the DANN-specific epoch function
+    return train_run(
+        model=dann_model,
+        optimizer=optimizer,
+        criterion=criterion_task,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        test_dataloader=test_loader,
+        args=args,
+        device=device,
+        training_epoch_fn=dann_training_epoch, # <-- Pass the DANN function
+        target_loaders=target_loaders          # <-- Pass the extra dataloaders
+    )

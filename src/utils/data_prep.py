@@ -821,7 +821,7 @@ def create_padded_or_truncated_data(df, fixed_length, padding='repeat', reuse_be
 
             for x, y, z in zip(acc_x_windows, acc_y_windows, acc_z_windows):
                 expanded_rows.append({'acc_x': x, 'acc_y': y, 'acc_z': z, 'behavior': row['behavior']})
-                df_metadata.loc[len(df_metadata)] = row[['individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 'Source']].values
+                df_metadata.loc[len(df_metadata)] = row[['individual ID', 'year', 'UTC date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 'Source']].values
 
         df_new = pd.DataFrame(expanded_rows)
     else:

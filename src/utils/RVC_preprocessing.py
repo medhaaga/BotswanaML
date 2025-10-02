@@ -29,8 +29,10 @@ def preprocess_data(df, metadata_df, feature_cols, helper_cols, summary_dir=None
     if summary_dir is not None:
         grouped_df = return_grouped_summary(df, metadata_df)
         grouped_df.to_csv(f"{summary_dir}/truncated_RVC_data_summary.csv", index=False)
+    df['UTC date [yyyy-mm-dd]'] = pd.to_datetime(df['UTC date [yyyy-mm-dd]'])
+    df = df[df['UTC date [yyyy-mm-dd]'].dt.year >= 2000]
 
-        # Select columns
+    # Select columns
     df = df[feature_cols + helper_cols]
 
     return df
