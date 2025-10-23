@@ -16,6 +16,7 @@ import src.utils.datasets as datasets
 import config as config
 from sklearn.preprocessing import LabelEncoder
 from src.eval.eval_utils import evaluate_label_distribution
+from src.eval.plot_utils import make_sightings_plots_from_model
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
@@ -25,7 +26,7 @@ def parse_arguments():
     # ---------------- Feature setup ----------------
     parser.add_argument("--pos_idx", nargs="+", type=int, default=[0,1,2,3,4,5],
                         help="Indices of positive-only features")
-    parser.add_argument("--center_idx", nargs="+", type=int, default=[6,7,8],
+    parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
                         help="Indices of zero-centered features")
 
     # ---------------- Preprocessing ----------------
@@ -58,8 +59,8 @@ def main():
     parser = parse_arguments()
     args = parser.parse_args()
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    dir = os.path.join(io.get_domain_adaptation_results_dir(), "dann")
-    os.makedirs(dir, exist_ok=True)
+    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "dann")
+    os.makedirs(root_dir, exist_ok=True)
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -87,9 +88,8 @@ def main():
 
     print("Loading target data (RVC)...")
     RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
-    X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0, Vectronics_feature_cols].values,
-                RVC_df.loc[RVC_df.firmware_major_version == 3.0, Vectronics_feature_cols].values]
-
+    X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0],
+                RVC_df.loc[RVC_df.firmware_major_version == 3.0]]
     # --------------------------
     # create datasets and dataloaders 
     # --------------------------
@@ -107,8 +107,11 @@ def main():
         pos_idx=args.pos_idx,
         center_idx=args.center_idx,
         lows=lows,
-        highs=highs
+        highs=highs,
+        clip_to_quantile=False
     )
+
+    print(len(RVC_df), transform(torch.tensor(RVC_df[Vectronics_feature_cols].values, dtype=torch.float32)).shape)
 
     X_train, X_temp, y_train, y_temp = train_test_split(X_src, y_src, test_size=2*args.test_frac, random_state=42, stratify=y_src)
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=args.test_frac, random_state=42, stratify=y_temp)
@@ -127,48 +130,93 @@ def main():
     val_loader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     test_loader   = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-    target_loaders = [
-        DataLoader(datasets.NumpyDataset(X=Xt, y=None, transform=transform), batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
-        for Xt in X_targets
-    ]
+    target_train_loaders = []
+    target_test_loaders = []
 
-    # ---------------- Train DANN ----------------
-    results = train_dann(train_loader, val_loader, test_loader, target_loaders, args, device)
-    model = results['model']
+    for Xt in X_targets:
+        X_target_full = Xt[Vectronics_feature_cols].values
 
-    #############################################
-    ###### Save objects
-    ##############################################
+        idx = np.random.permutation(len(X_target_full))
+        target_train_idx = idx[:X_train.shape[0]]
+        target_test_idx = idx[X_train.shape[0]:]  # remaining go to test
 
-    torch.save(model, os.path.join(dir, 'model.pt'))
-    
-    json_training_stats_file = os.path.join(dir, 'training_stats.json')
-    with open(json_training_stats_file, 'w') as f:
-        json.dump(results['training_stats'], f, indent=4)
+        X_target_train = X_target_full[target_train_idx]
+        X_target_test  = X_target_full[target_test_idx]
 
-    # Save test results
-    test_results_path = os.path.join(dir, 'test_results.npz')
-    np.savez(
-    test_results_path,
-    true_classes=results['test_true_classes'],
-    predictions=results['test_predictions'],
-    scores=results['test_scores'])
+        # Build target train/test datasets
+        target_train_dataset = datasets.NumpyDataset(X=X_target_train, y=None, transform=transform)
+        target_test_dataset  = datasets.NumpyDataset(X=X_target_test, y=None, transform=transform)
 
-    # Save val results
-    val_results_path = os.path.join(dir, 'val_results.npz')
-    np.savez(
-        val_results_path,
-        true_classes=results['val_true_classes'],
-        predictions=results['val_predictions'],
-        scores=results['val_scores'])
+        # Create loaders
+        target_train_loader = DataLoader(target_train_dataset, batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
+        target_test_loader  = DataLoader(target_test_dataset,  batch_size=1024, shuffle=False, num_workers=4, pin_memory=True)
 
-    # Evaluate on target domains
-    for loader in target_loaders:
-        _ = evaluate_label_distribution(model=model, 
-                                        data=loader,
-                                        n_classes=n_classes, 
-                                        label_encoder=label_encoder,
-                                        device=device, )
+        target_train_loaders.append(target_train_loader)
+        target_test_loaders.append(target_test_loader)
+
+    for i, loader in enumerate(target_train_loaders):
+
+        print(f"Training DANN for target domain {i+1}...")
+
+        # ---------------- Train DANN ----------------
+
+        results = train_dann(train_loader, val_loader, test_loader, [loader], args, device)
+        model = results['model']
+
+        #############################################
+        ###### Save objects
+        ##############################################
+
+        dir = os.path.join(root_dir, f'target{i+1}')
+        os.makedirs(dir, exist_ok=True)
+
+        torch.save(model.state_dict(), os.path.join(dir, 'model.pt'))
+        
+        json_training_stats_file = os.path.join(dir, 'training_stats.json')
+        with open(json_training_stats_file, 'w') as f:
+            json.dump(results['training_stats'], f, indent=4)
+
+        # Save test results
+        test_results_path = os.path.join(dir, 'test_results.npz')
+        np.savez(
+        test_results_path,
+        true_classes=results['test_true_classes'],
+        predictions=results['test_predictions'],
+        scores=results['test_scores'])
+
+        # Save val results
+        val_results_path = os.path.join(dir, 'val_results.npz')
+        np.savez(
+            val_results_path,
+            true_classes=results['val_true_classes'],
+            predictions=results['val_predictions'],
+            scores=results['val_scores'])
+
+        #############################################
+        ###### Evaluation
+        ##############################################
+
+        _, _, _ = evaluate_label_distribution(model=model, 
+                                            data=target_test_loaders[i],
+                                            n_classes=n_classes, 
+                                            label_encoder=label_encoder,
+                                            device=device, 
+                                            verbose=True)
+
+        # Plot sightings
+        matched_sightings = pd.read_csv(os.path.join(io.get_data_path(), 'matched_sightings.csv'))
+        matched_gps = pd.read_csv(io.get_gps_moving_path())
+
+        print('dann')
+        
+        make_sightings_plots_from_model(model=model, 
+                                   data=transform(torch.tensor(X_targets[i][Vectronics_feature_cols].values, dtype=torch.float32)),
+                                   metadata=RVC_df[RVC_df.firmware_major_version == (2.0 if i==0 else 3.0)].reset_index(drop=True),
+                                   matched_sightings=matched_sightings, 
+                                   matched_gps=matched_gps, 
+                                   device=device,
+                                   model_name='dann')
+
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 import numpy as np
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 
 def evaluate_label_distribution(model, data, n_classes, label_encoder, 
                                 device="cpu", batch_size=1024, num_workers=0, pin_memory=True, verbose=True):
@@ -32,13 +33,39 @@ def evaluate_label_distribution(model, data, n_classes, label_encoder,
     """
 
     # Wrap dataset into a DataLoader if needed
-    if isinstance(data, torch.utils.data.Dataset):
-        loader = torch.utils.data.DataLoader(
-            data, batch_size=batch_size, shuffle=False, 
-            num_workers=num_workers, pin_memory=pin_memory
+    if isinstance(data, DataLoader):
+        loader = data
+    elif isinstance(data, Dataset):
+        loader = DataLoader(
+            data,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory
+        )
+    elif isinstance(data, torch.Tensor):
+        dataset = TensorDataset(data)
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory
+        )
+    elif isinstance(data, np.ndarray):
+        tensor = torch.as_tensor(data, dtype=torch.float32)
+        dataset = TensorDataset(tensor)
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory
         )
     else:
-        loader = data
+        raise TypeError(
+            f"Unsupported data type: {type(data)}. Expected Dataset, Tensor, ndarray, or DataLoader."
+        )
 
     model.eval()
 
@@ -68,4 +95,4 @@ def evaluate_label_distribution(model, data, n_classes, label_encoder,
         for i, p in enumerate(probs):
             print(f"Class {label_encoder.inverse_transform([i])[0]}: {p:.3f}")
 
-    return all_softmax, probs
+    return all_preds, all_softmax, probs

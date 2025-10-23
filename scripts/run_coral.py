@@ -2,6 +2,7 @@ import sys
 import os
 import yaml
 import json
+
 sys.path.append(".")
 sys.path.append("../")
 sys.path.append("../../")
@@ -9,13 +10,15 @@ import argparse
 import numpy as np
 import torch
 from src.utils import preprocess
-from src.utils.train import train_coral, multi_label_eval_loop
+from src.utils.train import train_coral
 import pandas as pd
 import src.utils.io as io   
 import src.utils.datasets as datasets
 import config as config
 from sklearn.preprocessing import LabelEncoder
 from src.eval.eval_utils import evaluate_label_distribution
+from src.eval.plot_utils import make_sightings_plots_from_model
+
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
@@ -25,7 +28,7 @@ def parse_arguments():
     # ---------------- Feature setup ----------------
     parser.add_argument("--pos_idx", nargs="+", type=int, default=[0,1,2,3,4,5],
                         help="Indices of positive-only features")
-    parser.add_argument("--center_idx", nargs="+", type=int, default=[6,7,8],
+    parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
                         help="Indices of zero-centered features")
 
     # ---------------- Preprocessing ----------------
@@ -38,7 +41,7 @@ def parse_arguments():
 
     # ---------------- Training ----------------
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--lambda_coral", type=float, default=1.0, help="Weight for domain loss")
     parser.add_argument("--test_frac", type=float, default=0.2, help="Fraction of train set to reserve for validation")
@@ -58,7 +61,7 @@ def main():
     args = parser.parse_args()
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
     root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "coral")
-    os.makedirs(dir, exist_ok=True)
+    os.makedirs(root_dir, exist_ok=True)
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -88,8 +91,8 @@ def main():
 
     print("Loading target data (RVC)...")
     RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
-    X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0, Vectronics_feature_cols].values,
-                RVC_df.loc[RVC_df.firmware_major_version == 3.0, Vectronics_feature_cols].values]
+    X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0],
+                RVC_df.loc[RVC_df.firmware_major_version == 3.0]]
 
     # --------------------------
     # create datasets and dataloaders 
@@ -108,7 +111,8 @@ def main():
         pos_idx=args.pos_idx,
         center_idx=args.center_idx,
         lows=lows,
-        highs=highs
+        highs=highs,
+        clip_to_quantile=True
     )
 
     X_train, X_temp, y_train, y_temp = train_test_split(X_src, y_src, test_size=2*args.test_frac, random_state=42, stratify=y_src)
@@ -129,15 +133,42 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     test_loader   = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    
+    target_train_loaders = []
+    target_test_loaders = []
+    RVC_test_data = []
 
-    target_loaders = [
-        DataLoader(datasets.NumpyDataset(X=Xt, y=None, transform=transform), batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
-        for Xt in X_targets
-    ]
+    for Xt in X_targets:
+        X_target_full = Xt[Vectronics_feature_cols].values
 
-    for i, loader in enumerate(target_loaders):
+        idx = np.random.permutation(len(X_target_full))
+        target_train_idx = idx[:X_train.shape[0]]
+        target_test_idx = idx[X_train.shape[0]:]  # remaining go to test
 
-        # ---------------- Train DANN ----------------
+        X_target_train = X_target_full[target_train_idx]
+        X_target_test  = X_target_full[target_test_idx]
+
+        # Build target train/test datasets
+        target_train_dataset = datasets.NumpyDataset(X=X_target_train, y=None, transform=transform)
+        target_test_dataset  = datasets.NumpyDataset(X=X_target_test, y=None, transform=transform)
+
+        # Create loaders
+        target_train_loader = DataLoader(target_train_dataset, batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
+        target_test_loader  = DataLoader(target_test_dataset,  batch_size=1024, shuffle=False, num_workers=4, pin_memory=True)
+
+        target_train_loaders.append(target_train_loader)
+        target_test_loaders.append(target_test_loader)
+        RVC_test_data.append(Xt.iloc[target_test_idx].reset_index(drop=True))
+
+
+    for i, loader in enumerate(target_train_loaders):
+
+        if i ==0:
+            continue
+
+        print(f"Training CORAL for target domain {i+1}...")
+
+        # ---------------- Train CORAL ----------------
         results = train_coral(train_loader, val_loader, test_loader, loader, args, device)
         model = results['model']
 
@@ -148,7 +179,7 @@ def main():
         dir = os.path.join(root_dir, f'target{i+1}')
         os.makedirs(dir, exist_ok=True)
 
-        torch.save(model, os.path.join(dir, 'model.pt'))
+        torch.save(model.state_dict(), os.path.join(dir, 'model.pt'))
         
         json_training_stats_file = os.path.join(dir, 'training_stats.json')
         with open(json_training_stats_file, 'w') as f:
@@ -170,13 +201,31 @@ def main():
             predictions=results['val_predictions'],
             scores=results['val_scores'])
 
-        # Evaluate on target domains
-        _ = evaluate_label_distribution(model=model, 
-                                            data=loader,
-                                            n_classes=n_classes, 
-                                            label_encoder=label_encoder,
-                                            device=device, )
+        #############################################
+        ###### Evaluation
+        ##############################################
 
+        # _, _, _ = evaluate_label_distribution(model=model, 
+        #                                     data=target_test_loaders[i],
+        #                                     n_classes=n_classes, 
+        #                                     label_encoder=label_encoder,
+        #                                     device=device, 
+        #                                     verbose=True)
+        
+        # plot sightings
+        matched_sightings = pd.read_csv(os.path.join(io.get_data_path(), 'matched_sightings.csv'))
+        matched_gps_moving = pd.read_csv(io.get_gps_moving_path())
+        matched_gps_feeding = pd.read_csv(io.get_gps_feeding_path())
+
+        
+        make_sightings_plots_from_model(model=model, 
+                                   data=transform(torch.tensor(X_targets[i][Vectronics_feature_cols].values, dtype=torch.float32)),
+                                   metadata=RVC_df[RVC_df.firmware_major_version == (2.0 if i==0 else 3.0)].reset_index(drop=True),
+                                   matched_sightings=matched_sightings, 
+                                   matched_gps_moving=matched_gps_moving, 
+                                   matched_gps_feeding=matched_gps_feeding, 
+                                   device=device,
+                                   model_name='coral')
 
 if __name__ == "__main__":
     main()

@@ -25,7 +25,7 @@ RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
                                     'Eating': 'Feeding',
                                     }
 
-# {'Lying (head up)': 'Vigilant', 
+# RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant', 
 #                                     'Lying (head down)': 'Resting',
 #                                     'Walking': 'Moving',
 #                                     'Trotting': 'Moving',
@@ -73,5 +73,6 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
 
 # behaviors of interest for classification 
 RAW_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']
+# RAW_BEHAVIORS = ['Feeding', 'Moving', 'Resting', 'Running', 'Vigilant']
 
 SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']

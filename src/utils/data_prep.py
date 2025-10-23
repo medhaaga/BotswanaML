@@ -187,6 +187,7 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
 
         if verbose:
             print('individual {} has {} halfdays in the filtered metadata.'.format(individual, len(individual_metadata)))
+        
 
         for unique_period_loop in tqdm(individual_metadata['half day [yyyy-mm-dd_am/pm]'].unique(), desc=f'Processing unique half days for {individual}'):
 

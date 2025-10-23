@@ -185,7 +185,6 @@ def all_online_raw_eval(model_dir, metadata, device, sampling_frequency=16, wind
                     window_len=smoothening_window_length,
                     hop_len=smoothening_hop_length
                 )
-    
 
                 plot_dir = os.path.join(dir, 'plots')
                 os.makedirs(plot_dir, exist_ok=True)
@@ -398,9 +397,9 @@ if __name__ == '__main__':
                     plot=True)
     
     # extract_feeding_events(config.VECTRONICS_BEHAVIOR_EVAL_PATH)
-    window_duration = 30.0
-    training_results_dir = os.path.join(io.get_results_dir(), 'summary_training_results')
-    model_dir = os.path.join(training_results_dir, f"duration{window_duration}_theta{args.theta}_seed{args.seed}")
+    # window_duration = 30.0
+    # training_results_dir = os.path.join(io.get_results_dir(), 'summary_training_results')
+    # model_dir = os.path.join(training_results_dir, f"duration{window_duration}_theta{args.theta}_seed{args.seed}")
 
     # all_online_summary_eval(model_dir, 
     #                         metadata, 

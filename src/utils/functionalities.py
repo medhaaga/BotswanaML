@@ -5,6 +5,7 @@ from scipy.spatial.distance import cdist
 import tqdm as tqdm
 import random
 import torch
+from sklearn.cluster import MiniBatchKMeans
 
 
 def sliced_wasserstein_distance(X, Y, num_directions=500, seed=None):
@@ -60,6 +61,41 @@ def ot_align(X1, X2, reg=0.1):
     X2_proj = G.T @ X1
     return X2_proj, sinkhorn_dist
 
+def compute_kmeans_distribution(data, n_clusters=100, batch_size=10000, random_state=42):
+    """
+    Performs K-Means clustering using MiniBatchKMeans for large datasets,
+    computes the distribution of points over clusters, and returns centroids.
+
+    Args:
+        data (np.ndarray): Input array of shape (n, 6).
+        n_clusters (int): Number of clusters to form.
+        batch_size (int): Mini-batch size for faster training.
+        random_state (int): Random seed for reproducibility.
+
+    Returns:
+        a (np.ndarray): Vector of shape (n_clusters,) with proportion of data in each cluster.
+        centroids (np.ndarray): Array of shape (n_clusters, 6) with cluster centroids.
+        labels (np.ndarray): Cluster assignments for each sample.
+    """
+    # Initialize MiniBatchKMeans (faster for millions of samples)
+    kmeans = MiniBatchKMeans(
+        n_clusters=n_clusters,
+        batch_size=batch_size,
+        random_state=random_state,
+        n_init="auto"
+    )
+
+    # Fit and predict
+    labels = kmeans.fit_predict(data)
+
+    # Compute distribution (counts and proportions)
+    counts = np.bincount(labels, minlength=n_clusters)
+    a = counts / counts.sum()  # normalize to sum to 1
+
+    # Extract centroids
+    centroids = kmeans.cluster_centers_
+
+    return a, centroids, labels
 
 def rbf_kernel(X, Y, sigma=1.0):
     """Compute the RBF (Gaussian) kernel between two sets of vectors."""

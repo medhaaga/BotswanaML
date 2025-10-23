@@ -52,7 +52,7 @@ def parse_arguments():
     parser.add_argument("--experiment_name", type=str, default='no_split', choices=['no_split', 'interdog', 'interyear', 'interAMPM'])
     parser.add_argument("--kernel_size", type=int, default=5, help="size fo kernel for CNN")
     parser.add_argument("--n_channels", type=int, default=64, help="number of output channels for the first CNN layer")
-    parser.add_argument("--n_CNNlayers", type=int, default=3, help="number of convolution layers")
+    parser.add_argument("--n_CNNlayers", type=int, default=5, help="number of convolution layers")
     parser.add_argument("--window_duration_percentile", type=int, default=50, help="audio duration cutoff percentile")
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=128)

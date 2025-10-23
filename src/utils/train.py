@@ -43,6 +43,7 @@ def standard_training_epoch(model, optimizer, criterion, train_dataloader, devic
     return train_loss
 
 def dann_training_epoch(model, optimizer, criterion, train_dataloader, device, args, **kwargs):
+    
     """Performs one epoch of training using the DANN loss."""
     target_loaders = kwargs.get('target_loaders')
     if not target_loaders:
@@ -292,7 +293,8 @@ def train_coral(train_loader, val_loader, test_loader, target_loader, args, devi
 
     return training_results
 
-def train_dann(train_loader, val_loader, test_loader, target_loaders, args, device):
+def train_dann(train_loader, val_loader, test_loader, target_loader, args, device):
+
     """Sets up and runs training for a DANN model."""
     # 1. Initialize the three separate networks
     feat = FeatureExtractor(in_dim=args.input_dim, hidden_dim=args.hidden_dim).to(device)
@@ -317,5 +319,5 @@ def train_dann(train_loader, val_loader, test_loader, target_loaders, args, devi
         args=args,
         device=device,
         training_epoch_fn=dann_training_epoch, # <-- Pass the DANN function
-        target_loaders=target_loaders          # <-- Pass the extra dataloaders
+        target_loaders=target_loader              # <-- Pass the extra dataloaders
     )

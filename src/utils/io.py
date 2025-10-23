@@ -71,6 +71,18 @@ def get_RVC_historic_data_path():
     path = os.path.join(get_data_path(), 'RVC_historic_data.csv')
     return path
 
+def get_sightings_path():
+    path = os.path.join(get_data_path(), 'matched_sightings.csv')
+    return path
+
+def get_gps_moving_path():
+    path = os.path.join(get_data_path(), 'GPS_moving.csv')
+    return path
+
+def get_gps_feeding_path():
+    path = os.path.join(get_data_path(), 'GPS_feeding.csv')
+    return path
+
 def get_results_dir():
     current_path = get_project_root()
     path = os.path.join(current_path, 'results')
