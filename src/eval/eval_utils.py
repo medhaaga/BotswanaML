@@ -96,3 +96,77 @@ def evaluate_label_distribution(model, data, n_classes, label_encoder,
             print(f"Class {label_encoder.inverse_transform([i])[0]}: {p:.3f}")
 
     return all_preds, all_softmax, probs
+
+def evaluate_multilabel_distribution(
+    model, 
+    data, 
+    label_encoder, 
+    threshold=0.5,
+    device="cpu", 
+    batch_size=1024, 
+    num_workers=0, 
+    pin_memory=True, 
+    verbose=True
+):
+    """
+    Evaluate model predictions for MULTI-LABEL classification.
+    Counts a class as predicted if sigmoid(logit) >= threshold.
+    """
+
+    # Wrap data into DataLoader if needed
+    if isinstance(data, DataLoader):
+        loader = data
+    elif isinstance(data, Dataset):
+        loader = DataLoader(
+            data, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory
+        )
+    elif isinstance(data, torch.Tensor):
+        loader = DataLoader(
+            TensorDataset(data), batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory
+        )
+    elif isinstance(data, np.ndarray):
+        t = torch.as_tensor(data, dtype=torch.float32)
+        loader = DataLoader(
+            TensorDataset(t), batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory
+        )
+    else:
+        raise TypeError("Unsupported data type")
+
+    model.eval()
+
+    all_probs = []
+    all_pred_binary = []
+
+    with torch.no_grad():
+        for batch in loader:
+            X_batch = batch[0] if isinstance(batch, (list, tuple)) else batch
+            X_batch = X_batch.to(device).float()
+
+            # model outputs: feats, logits, probs (if following previous design)
+            outputs = model(X_batch)
+            logits = outputs[1] if isinstance(outputs, tuple) else outputs
+
+            probs = torch.sigmoid(logits)              # (B, n_classes)
+            preds = (probs >= threshold).int()         # binary predictions
+
+            all_probs.append(probs.cpu().numpy())
+            all_pred_binary.append(preds.cpu().numpy())
+
+    # Concatenate results
+    all_probs = np.concatenate(all_probs, axis=0)           # (N, n_classes)
+    all_pred_binary = np.concatenate(all_pred_binary, 0)    # (N, n_classes)
+
+    # Count frequency of each class being predicted
+    predicted_counts = all_pred_binary.sum(axis=0)          # (n_classes,)
+    predicted_percent = np.round(100 * predicted_counts / len(all_pred_binary), 2)
+
+    if verbose:
+        print("\nPredicted class % occurrence:")
+        for i, pct in enumerate(predicted_percent):
+            label = label_encoder.inverse_transform([i])[0]
+            print(f"  {label}: {pct:.2f}%")
+
+    return all_pred_binary, all_probs, predicted_percent

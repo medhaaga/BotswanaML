@@ -5,7 +5,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # config/
 RVC_PREPROCESSING_YAML = os.path.join(BASE_DIR, 'RVC_preprocessing.yaml')
 VECTRONICS_PREPROCESSING_YAML = os.path.join(BASE_DIR, 'Vectronics_preprocessing.yaml')
 
-HISTORIC_ACC = '/mnt/ssd/medhaaga/wildlife/historic'
+HISTORIC_ACC_UNANNOTATED = '/mnt/ssd/medhaaga/wildlife/historic/unannotated'
+HISTORIC_ACC_ANNOTATED = '/mnt/ssd/medhaaga/wildlife/historic/annotated'
+
 
 # dictionary with individual ID as key and path to the directory which stores that individual's acceleration CSV files as value.
 AWD_VECTRONICS_PATHS = {

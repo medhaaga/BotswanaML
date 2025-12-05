@@ -12,7 +12,7 @@ from tqdm import tqdm
 from pytz import timezone
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
-from torch.utils.data import DataLoader, WeightedRandomSampler, TensorDataset
+from torch.utils.data import DataLoader, WeightedRandomSampler
 import torch
 import warnings
 import time
@@ -28,6 +28,7 @@ from src.utils.io import (format_time,
                           get_matched_summary_path,
                           get_matched_annotations_summary_path
 )
+import src.utils.datasets as datasets
             
 
 def combined_annotations(video_path, audio_path, id_mapping):
@@ -45,36 +46,59 @@ def combined_annotations(video_path, audio_path, id_mapping):
 
     """
     video_annotations = pd.read_csv(video_path) # load video annotations
-    audio_annotations = pd.read_csv(audio_path) # load audio annotations
+    audio_annotations = pd.read_csv(audio_path, encoding='Windows-1252') # load audio annotations
 
     video_annotations['id'] = video_annotations['id'].replace(id_mapping)
     audio_annotations['Individual'] = audio_annotations['Individual'].replace(id_mapping)
 
-    audio_annotations = audio_annotations[audio_annotations['Confidence (H-M-L)'].isin(['H', 'H/M'])]
     
     audio_annotations = audio_annotations.assign(Source='Audio')
     video_annotations = video_annotations.assign(Source='Video')
 
-
-    annotations_columns = ['id', 'Behavior', 'Timestamp_start', 'Timestamp_end', 'Source']
+    annotations_columns = ['id', 'Behavior', 'Timestamp_start', 'Timestamp_end', 'Source', 'Confidence (H-M-L)', 'Eating intensity']
+    
     rename_dict = {'Individual': 'id', 'Behaviour': 'Behavior', 'Timestamp_start_utc': 'Timestamp_start', 'Timestamp_end_utc': 'Timestamp_end'}
     audio_annotations = audio_annotations.rename(columns=rename_dict)
 
+    # audio_annotations = audio_annotations[audio_annotations['Confidence (H-M-L)'].isin(['H', 'H/M'])]
+    audio_annotations = audio_annotations[(audio_annotations['Behavior'] == 'Other') | (audio_annotations['Confidence (H-M-L)'].isin(['H', 'H/M']))]
+    video_annotations['Confidence (H-M-L)'] = 'H'  # all video annotations are high confidence
+
+
+    # --- VIDEO timestamps: dd/mm/yyyy
     botswana_timezone = 'Africa/Gaborone'
-    video_annotations['Timestamp_start'] = pd.to_datetime(video_annotations['Timestamp_start'], format='%Y/%m/%d %H:%M:%S')
-    video_annotations['Timestamp_end'] = pd.to_datetime(video_annotations['Timestamp_end'], format='%Y/%m/%d %H:%M:%S')
+    video_annotations['Timestamp_start'] = pd.to_datetime(video_annotations['Timestamp_start'], format='%d/%m/%Y %H:%M:%S', errors='coerce') 
+    video_annotations['Timestamp_end'] = pd.to_datetime(video_annotations['Timestamp_end'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
 
     # localize to botswana time and the change clock time to utc
-    video_annotations['Timestamp_start'] = video_annotations['Timestamp_start'].apply(lambda x: x.tz_localize(botswana_timezone).tz_convert('UTC'))
-    video_annotations['Timestamp_end'] = video_annotations['Timestamp_end'].apply(lambda x: x.tz_localize(botswana_timezone).tz_convert('UTC'))
-    
-    # now remove time zone information
-    video_annotations['Timestamp_start'] = video_annotations['Timestamp_start'].dt.tz_localize(None)
-    video_annotations['Timestamp_end'] = video_annotations['Timestamp_end'].dt.tz_localize(None)
+    video_annotations['Timestamp_start'] = (
+        video_annotations['Timestamp_start']
+        .dt.tz_localize(botswana_timezone)
+        .dt.tz_convert('UTC')
+        .dt.tz_localize(None)
+    )
 
-    # make sure timestamp is in a given format
+    video_annotations['Timestamp_end'] = (
+        video_annotations['Timestamp_end']
+        .dt.tz_localize(botswana_timezone)
+        .dt.tz_convert('UTC')
+        .dt.tz_localize(None)
+    )
+
+    # --- AUDIO timestamps: yyyy/mm/dd
+    audio_annotations['Timestamp_start'] = pd.to_datetime(audio_annotations['Timestamp_start'], format='%Y/%m/%d %H:%M:%S', errors='coerce')
+    audio_annotations['Timestamp_end'] = pd.to_datetime(audio_annotations['Timestamp_end'], format='%Y/%m/%d %H:%M:%S', errors='coerce')
+
+    # Audio should already be UTC, but drop tz if present
+    audio_annotations['Timestamp_start'] = audio_annotations['Timestamp_start'].dt.tz_localize(None)
+    audio_annotations['Timestamp_end'] = audio_annotations['Timestamp_end'].dt.tz_localize(None)
+
+    # Convert all timestamps to common output format
     video_annotations['Timestamp_start'] = video_annotations['Timestamp_start'].dt.strftime('%Y/%m/%d %H:%M:%S')
     video_annotations['Timestamp_end'] = video_annotations['Timestamp_end'].dt.strftime('%Y/%m/%d %H:%M:%S')
+
+    audio_annotations['Timestamp_start'] = audio_annotations['Timestamp_start'].dt.strftime('%Y/%m/%d %H:%M:%S')
+    audio_annotations['Timestamp_end'] = audio_annotations['Timestamp_end'].dt.strftime('%Y/%m/%d %H:%M:%S')
 
 
     all_annotations = pd.concat([video_annotations[annotations_columns], audio_annotations[annotations_columns]]).reset_index(drop=True)
@@ -157,7 +181,10 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
     """
     # create dataframes for saving matched acceleration and behavior data
 
-    cols = ['individual ID', 'behavior', 'behavior_start', 'behavior_end', 'duration', 'year', 'UTC date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 'acc_x', 'acc_y', 'acc_z', 'Source']
+    cols = ['individual ID', 'behavior', 'behavior_start', 'behavior_end', 'duration', 
+            'year', 'UTC date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 
+            'acc_x', 'acc_y', 'acc_z', 'Source', 'Confidence (H-M-L)', 'Eating intensity']
+    
     acc_data = pd.DataFrame(columns=cols, index=[])
     acc_data_metadata = pd.DataFrame(columns=filtered_metadata.columns, index=[])
     acc_summary = pd.DataFrame(columns=['id', 'date_am_pm_id', 'annotations', 'acc', 'number of matched acc'], index=[])
@@ -253,7 +280,10 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
                                                             behaviour_acc['Acc X [g]'].to_list(),
                                                             behaviour_acc['Acc Y [g]'].to_list(),
                                                             behaviour_acc['Acc Z [g]'].to_list(),
-                                                            row['Source']]
+                                                            row['Source'],
+                                                            row['Confidence (H-M-L)'],
+                                                            row['Eating intensity']
+                            ]
 
                             acc_data_metadata.loc[len(acc_data_metadata)] = individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop].values[0].tolist()
                             annotations_summary.at[row_idx, 'match'] = 1
@@ -265,44 +295,59 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
 
     return acc_summary, acc_data, acc_data_metadata, annotations_summary
 
+def give_balanced_weights(theta, y, n_classes_total):
+    """
+    Compute class weights for rebalancing, even if some classes are missing in y.
+    theta: float between 0 and 1 for balancing uniform vs empirical distribution
+    y: array of integer class labels (may have gaps)
+    n_classes_total: total number of classes (including missing ones)
+    """
+    classes_present, class_counts = np.unique(y, return_counts=True)
+    n_present = len(classes_present)
 
-def give_balanced_weights(theta, y):
-    n_classes = len(np.unique(y))
-    weights = theta*np.ones(n_classes)/n_classes + (1-theta)*np.unique(y, return_counts=True)[1]/len(y)
-    return weights
+    empirical_weights = class_counts / len(y)
+    uniform_weights = np.ones(n_present) / n_present
+    combined_weights = theta * uniform_weights + (1 - theta) * empirical_weights
+    class_to_weight = dict(zip(classes_present, combined_weights))
 
-def setup_dataloaders(X_train, y_train, X_val, y_val, X_test, y_test, args):
+    # For missing classes, assign weight 0
+    for cls in range(n_classes_total):
+        if cls not in class_to_weight:
+            class_to_weight[cls] = 0.0
 
-    n_outputs = len(np.unique(np.concatenate((y_train, y_val, y_test))))
+    return class_to_weight, classes_present, class_counts
+
+def setup_multilabel_dataloaders(X_train, y_train, X_val, y_val, X_test, y_test, args, n_outputs, transform=None, verbose=False):
     
-    weights = give_balanced_weights(args.theta, y_train)
-    sample_weights = np.unique(y_train, return_counts=True)[1]
-    y_weights = torch.tensor([weights[i]/sample_weights[i] for i in y_train], dtype=torch.float32)
+    # --- Compute class weights for arbitrary labels ---
+    class_to_weight, classes, class_counts = give_balanced_weights(args.theta, y_train, n_outputs)
+
+    if verbose:
+        print("Class weights:")
+        for label in range(n_outputs):
+            if label in classes:
+                print(f"{label} -> {class_to_weight[label] / class_counts[np.where(classes == label)[0][0]]}")
+
+    # Map y_train labels to weights
+    y_weights = torch.tensor([class_to_weight[label] / class_counts[np.where(classes == label)[0][0]] for label in y_train],
+                             dtype=torch.float32)
     sampler = WeightedRandomSampler(y_weights, len(y_weights))
-
-    # converting to one-hot vectors
-    y_train = np.eye(n_outputs)[y_train]
-    y_val = np.eye(n_outputs)[y_val]
-    y_test = np.eye(n_outputs)[y_test]
-
-    # Convert data and labels to PyTorch tensors
-    X_train = torch.tensor(X_train, dtype=torch.float32)
-    y_train = torch.tensor(y_train, dtype=torch.float32)
-    X_val = torch.tensor(X_val, dtype=torch.float32)
-    y_val = torch.tensor(y_val, dtype=torch.float32)
-    X_test = torch.tensor(X_test, dtype=torch.float32)
-    y_test = torch.tensor(y_test, dtype=torch.float32)
-
-    # Create TensorDatasets
-    train_dataset = TensorDataset(X_train, y_train)
-    val_dataset = TensorDataset(X_val, y_val)
-    test_dataset = TensorDataset(X_test, y_test)
-
-    # Create DataLoader for training and testing
+    
+    # --- One-hot encoding ---
+    y_train_oh = np.eye(n_outputs)[y_train]
+    y_val_oh   = np.eye(n_outputs)[y_val]
+    y_test_oh  = np.eye(n_outputs)[y_test]
+    
+    # --- Create datasets ---
+    train_dataset = datasets.NumpyDataset(X=X_train, y=y_train_oh, transform=transform)
+    val_dataset   = datasets.NumpyDataset(X=X_val, y=y_val_oh, transform=transform)
+    test_dataset  = datasets.NumpyDataset(X=X_test, y=y_test_oh, transform=transform)
+    
+    # --- DataLoaders ---
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=sampler)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
-
+    val_dataloader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_dataloader  = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    
     return train_dataloader, val_dataloader, test_dataloader
 
 def adjust_behavior_and_durations(df, collapse_behavior_mapping, behaviors, verbose=False):
@@ -988,5 +1033,5 @@ if __name__ == '__main__':
     acc_data_metadata.to_csv(get_matched_metadata_path(), index=False)
     annotations_summary.to_csv(get_matched_annotations_summary_path(), index=False)
 
-    create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
+    # create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
     

@@ -7,7 +7,7 @@ class NumpyDataset(Dataset):
     """Wrap a NumPy array (X) and optional labels (y) into a PyTorch Dataset."""
     def __init__(self, X, y=None, transform=None):
         self.X = torch.from_numpy(X).float()
-        self.y = None if y is None else torch.from_numpy(y).long()
+        self.y = None if y is None else torch.from_numpy(y).float()
         self.transform = transform
 
     def __len__(self):
@@ -21,7 +21,7 @@ class NumpyDataset(Dataset):
             X_item = self.transform(X_item)
 
         if self.y is None:
-            y_item = torch.tensor(0, dtype=torch.long)  # dummy scalar label
+            y_item = torch.tensor(0, dtype=torch.float32)  # dummy scalar label
         else:
             y_item = self.y[idx]
 

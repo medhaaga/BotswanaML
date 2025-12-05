@@ -9,11 +9,13 @@ sys.path.append("../../")
 import argparse
 import numpy as np
 import torch
-from src.utils import preprocess
-from src.utils.train import train_coral
 import pandas as pd
 import src.utils.io as io   
 import src.utils.datasets as datasets
+from src.utils import preprocess
+from src.utils.train import train_coral
+from src.utils.data_prep import setup_multilabel_dataloaders
+from src.utils.Vectronics_preprocessing import modify_vectronics_labels
 import config as config
 from sklearn.preprocessing import LabelEncoder
 from src.eval.eval_utils import evaluate_label_distribution
@@ -30,6 +32,8 @@ def parse_arguments():
                         help="Indices of positive-only features")
     parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
                         help="Indices of zero-centered features")
+    parser.add_argument("--remove_outliers", type=int, default=1,
+                        help="whether to remove target samples outside the source domain")
 
     # ---------------- Preprocessing ----------------
     parser.add_argument("--n_sample_per_target", type=int, default=200000,
@@ -38,11 +42,14 @@ def parse_arguments():
     # ---------------- Model ----------------
     parser.add_argument("--feat_dim", type=int, default=128,
                         help="Dimension of feature extractor's hidden layer")
+    parser.add_argument("--model_name", type=str, default='A', help="Model name for saving results")
 
     # ---------------- Training ----------------
+    parser.add_argument("--theta", type=float, default=0.3)
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay (L2 regularization)")
     parser.add_argument("--lambda_coral", type=float, default=1.0, help="Weight for domain loss")
     parser.add_argument("--test_frac", type=float, default=0.2, help="Fraction of train set to reserve for validation")
 
@@ -53,6 +60,7 @@ def parse_arguments():
 
     return parser
 
+
 def main():
     # --------------------------
     # Parse arguments
@@ -60,12 +68,12 @@ def main():
     parser = parse_arguments()
     args = parser.parse_args()
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "coral")
+    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "pure_coral")
     os.makedirs(root_dir, exist_ok=True)
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-
+    
     # --------------------------
     # Load data
     # --------------------------
@@ -75,8 +83,10 @@ def main():
         Vectronics_preprocessing_config = yaml.safe_load(f)
     Vectronics_feature_cols = Vectronics_preprocessing_config['feature_cols']
 
-    min_duration_before_padding = 15.0
+    min_duration_before_padding = None
     vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(min_duration_before_padding))
+    vectronics_df = modify_vectronics_labels(vectronics_df, model_name=args.model_name)
+    
     X_src = vectronics_df[Vectronics_feature_cols].values
     y_src = vectronics_df['behavior'].values
 
@@ -88,11 +98,20 @@ def main():
     y_src = label_encoder.fit_transform(y_src)
     n_classes = len(np.unique(y_src))
 
-
     print("Loading target data (RVC)...")
     RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
     X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0],
                 RVC_df.loc[RVC_df.firmware_major_version == 3.0]]
+    
+    if args.remove_outliers:
+        left_limit = np.quantile(X_src, 0.0, axis=0)
+        right_limit = np.quantile(X_src, 1.0, axis=0)
+        right_limit = np.where(right_limit == left_limit, left_limit + 1e-6, right_limit)
+    
+        for i, Xt in enumerate(X_targets):
+            Xt = Xt[Vectronics_feature_cols].values
+            mask = (Xt >= left_limit).all(axis=1) & (Xt <= right_limit).all(axis=1) & (Xt > 0.0).all(axis=1)
+            X_targets[i] = X_targets[i][mask].reset_index(drop=True)
 
     # --------------------------
     # create datasets and dataloaders 
@@ -106,39 +125,24 @@ def main():
         low_q=0.00,
         high_q=1.00,
     )
+
     # define transform
     transform = preprocess.TransformAndScale(
         pos_idx=args.pos_idx,
         center_idx=args.center_idx,
         lows=lows,
         highs=highs,
-        clip_to_quantile=True
+        clip_to_quantile=False
     )
 
     X_train, X_temp, y_train, y_temp = train_test_split(X_src, y_src, test_size=2*args.test_frac, random_state=42, stratify=y_src)
-    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=args.test_frac, random_state=42, stratify=y_temp)
-     
-    print(f"Train data: {X_train.shape}")
-    print(f"Val data: {X_val.shape}")
-    for i, Xt in enumerate(X_targets):
-        print(f"Target data {i+1}: {Xt.shape}")
-    print(f"Number of classes: {n_classes}")
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
+    train_loader, val_loader, test_loader = setup_multilabel_dataloaders(X_train, y_train, X_val, y_val, X_test, y_test, args, n_outputs=n_classes, transform=transform)
 
-    # Build datasets
-    train_dataset = datasets.NumpyDataset(X=X_train, y=y_train, transform=transform)
-    val_dataset   = datasets.NumpyDataset(X=X_val, y=y_val, transform=transform)
-    test_dataset   = datasets.NumpyDataset(X=X_test, y=y_test, transform=transform)
-
-    # Build dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader   = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    
     target_train_loaders = []
     target_test_loaders = []
-    RVC_test_data = []
 
-    for Xt in X_targets:
+    for i, Xt in enumerate(X_targets):
         X_target_full = Xt[Vectronics_feature_cols].values
 
         idx = np.random.permutation(len(X_target_full))
@@ -153,18 +157,20 @@ def main():
         target_test_dataset  = datasets.NumpyDataset(X=X_target_test, y=None, transform=transform)
 
         # Create loaders
-        target_train_loader = DataLoader(target_train_dataset, batch_size=1024, shuffle=True, num_workers=4, pin_memory=True)
-        target_test_loader  = DataLoader(target_test_dataset,  batch_size=1024, shuffle=False, num_workers=4, pin_memory=True)
+        target_train_loader = DataLoader(target_train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+        target_test_loader  = DataLoader(target_test_dataset,  batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
         target_train_loaders.append(target_train_loader)
         target_test_loaders.append(target_test_loader)
-        RVC_test_data.append(Xt.iloc[target_test_idx].reset_index(drop=True))
 
+
+    print(f"Train data: {X_train.shape}")
+    print(f"Val data: {X_val.shape}")
+    for i, Xt in enumerate(X_targets):
+        print(f"Target data {i+1}: {Xt.shape}")
+    print(f"Number of classes: {n_classes}")
 
     for i, loader in enumerate(target_train_loaders):
-
-        if i ==0:
-            continue
 
         print(f"Training CORAL for target domain {i+1}...")
 
@@ -176,8 +182,9 @@ def main():
         ###### Save objects
         ##############################################
 
-        dir = os.path.join(root_dir, f'target{i+1}')
+        dir = os.path.join(root_dir, args.model_name, f'target{i+1}')
         os.makedirs(dir, exist_ok=True)
+        print(dir)
 
         torch.save(model.state_dict(), os.path.join(dir, 'model.pt'))
         
@@ -205,27 +212,28 @@ def main():
         ###### Evaluation
         ##############################################
 
-        # _, _, _ = evaluate_label_distribution(model=model, 
-        #                                     data=target_test_loaders[i],
-        #                                     n_classes=n_classes, 
-        #                                     label_encoder=label_encoder,
-        #                                     device=device, 
-        #                                     verbose=True)
+        _, _, _ = evaluate_label_distribution(model=model, 
+                                            data=target_test_loaders[i],
+                                            n_classes=n_classes, 
+                                            label_encoder=label_encoder,
+                                            device=device, 
+                                            verbose=True)
         
         # plot sightings
-        matched_sightings = pd.read_csv(os.path.join(io.get_data_path(), 'matched_sightings.csv'))
+        matched_sightings = pd.read_csv(io.get_sightings_path())
+        matched_gps = pd.read_csv(io.get_matched_gps_path())
         matched_gps_moving = pd.read_csv(io.get_gps_moving_path())
-        matched_gps_feeding = pd.read_csv(io.get_gps_feeding_path())
 
-        
+        plot_dir = os.path.join(io.get_sightings_dir(), 'pure_coral', args.model_name, 'uncalibrated')
+        os.makedirs(plot_dir, exist_ok=True)
         make_sightings_plots_from_model(model=model, 
                                    data=transform(torch.tensor(X_targets[i][Vectronics_feature_cols].values, dtype=torch.float32)),
-                                   metadata=RVC_df[RVC_df.firmware_major_version == (2.0 if i==0 else 3.0)].reset_index(drop=True),
+                                   metadata=X_targets[i],
                                    matched_sightings=matched_sightings, 
+                                   matched_gps=matched_gps,
                                    matched_gps_moving=matched_gps_moving, 
-                                   matched_gps_feeding=matched_gps_feeding, 
                                    device=device,
-                                   model_name='coral')
+                                   plot_dir=plot_dir)
 
 if __name__ == "__main__":
     main()

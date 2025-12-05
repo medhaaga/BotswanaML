@@ -6,8 +6,8 @@ def signed_log(x: np.ndarray) -> np.ndarray:
     return np.sign(x) * np.log1p(np.abs(x))
 
 def compute_combined_quantiles(datasets,
-                               pos_idx, center_idx,
                                n_sample_per_target=200_000,
+                               pos_idx=None, center_idx=None,
                                low_q=0.05, high_q=0.95,
                                random_state=0):
     """
@@ -24,12 +24,12 @@ def compute_combined_quantiles(datasets,
     sampled_datasets = [subsample(X, n_sample_per_target) for X in datasets]
     X_comb = np.vstack(sampled_datasets)
 
-    # Transform before quantile calculation
-    Xq = X_comb.copy()
     if pos_idx:
-        Xq[:, pos_idx] = np.log1p(Xq[:, pos_idx])
+        X_comb[:, pos_idx] = np.log1p(X_comb[:, pos_idx])
     if center_idx:
-        Xq[:, center_idx] = signed_log(Xq[:, center_idx])
+        X_comb[:, center_idx] = signed_log(X_comb[:, center_idx])
+
+    Xq = X_comb.copy()
 
     lows = np.quantile(Xq, low_q, axis=0)
     highs = np.quantile(Xq, high_q, axis=0)
@@ -38,11 +38,14 @@ def compute_combined_quantiles(datasets,
     return lows, highs
 
 class TransformAndScale:
-    def __init__(self, pos_idx, center_idx, lows, highs, clip_to_quantile=True):
+    def __init__(self, pos_idx, center_idx, lows, highs, clip_to_quantile=False):
 
         self.pos_idx = pos_idx
         self.center_idx = center_idx
         self.clip_to_quantile = clip_to_quantile
+
+        if self.clip_to_quantile and self.remove_outliers:
+            raise ValueError("Only one of clip_to_quantile or remove_outliers can be True.")
 
         self.lows = torch.tensor(lows, dtype=torch.float32)
         self.highs = torch.tensor(highs, dtype=torch.float32)

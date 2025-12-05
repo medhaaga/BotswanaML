@@ -43,7 +43,7 @@ def coral_loss(source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 # Example: deep coral combined loss inside a training step
 class SimpleFeatureNet(nn.Module):
-    """Example: feature extractor + classifier"""
+    """Feature extractor + classifier for multi-label classification."""
     def __init__(self, input_dim, feat_dim, num_classes):
         super().__init__()
         self.backbone = nn.Sequential(
@@ -54,11 +54,17 @@ class SimpleFeatureNet(nn.Module):
         )
         self.classifier = nn.Linear(feat_dim, num_classes)
 
-    def forward(self, x):
-        feats = self.backbone(x)    # (batch, feat_dim)
-        logits = self.classifier(feats)
-        return feats, logits
+    def forward(self, x, return_features=True):
+        feats = self.backbone(x)           # (B, feat_dim)
+        logits = self.classifier(feats)    # (B, num_classes)
+        
+        if return_features:
+            return feats, logits
+        else:
+            return logits
+    
 
+    
 # Usage in a train step (sketch):
 def coral_train_step(model, source_x, source_y, target_x, optimizer, lambda_coral=1.0):
     """

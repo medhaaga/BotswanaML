@@ -6,6 +6,10 @@ import pandas as pd
 DATE_FORMAT = "%Y%m%d_%H%M%S"
 TIMEZONE = pytz.utc
 SAMPLING_RATE = 16
+COLOR_LIST = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+    "#9467bd", "#8c564b", "#e377c2", "#17becf"
+]
 
 # map fine behavior classifications in annottaions file to coarser behavior classes
 RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary', 

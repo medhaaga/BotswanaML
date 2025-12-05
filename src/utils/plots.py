@@ -7,6 +7,8 @@ from matplotlib import gridspec
 from matplotlib.lines import Line2D
 import config as config
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import roc_curve, auc
+from sklearn.preprocessing import label_binarize
 import matplotlib.dates as mdates
 
 # Graphing Parameters
@@ -18,60 +20,122 @@ mpl.rcParams['ytick.labelsize'] = 25
 mpl.rcParams["axes.labelsize"] = 25
 mpl.rcParams['legend.fontsize'] = 25
 mpl.rcParams['axes.titlesize'] = 25
-mpl.rcParams['text.usetex'] = False
+mpl.rcParams['text.usetex'] = True
 
-def multi_label_predictions(dir, label_encoder, split='test', plot_confusion=True, return_accuracy=False, return_precision=False, return_recall=False, return_f1=False, plot_path=None, average='macro'):
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import numpy as np
+import os
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def multi_label_predictions(dir, label_encoder, split='test', plot_confusion=True,
+                            return_accuracy=False, return_precision=False, return_recall=False,
+                            return_f1=False, plot_path=None, average='macro', threshold=0.5):
     
+    # Load predictions and true labels
     if split == 'test':
-        y = np.load(os.path.join(dir, 'test_true_classes.npy'))
-        predictions = np.load(os.path.join(dir, 'test_predictions.npy'))
-
+        results = np.load(os.path.join(dir, "test_results.npz"))
+        y_true = results["true_classes"]        # shape: (N, C)
+        y_pred = results["predictions"]         # shape: (N, C)
     elif split == 'val':
-        y = np.load(os.path.join(dir, 'val_true_classes.npy'))
-        predictions = np.load(os.path.join(dir, 'val_predictions.npy'))
+        results = np.load(os.path.join(dir, "val_results.npz"))
+        y_true = results["true_classes"]        # shape: (N, C)
+        y_pred = results["predictions"]         # shape: (N, C)
+    elif split == 'target_test':
+        results = np.load(os.path.join(dir, "target_test_results.npz"))
+        y_true = results["true_classes"]        # shape: (N, C)
+        y_pred = results["predictions"]         # shape: (N, C)
+    elif split == 'target_val':
+        results = np.load(os.path.join(dir, "target_val_results.npz"))
+        y_true = results["true_classes"]        # shape: (N, C)
+        y_pred = results["predictions"]         # shape: (N, C)
     else:
-        raise ValueError
+        raise ValueError("split must be 'test' or 'val'")
 
-    # plot confusion matrices
+    
+    n_classes = y_true.shape[1]
+    class_names = label_encoder.inverse_transform(np.arange(n_classes))
 
+    # ===================
+    # Plot per-class confusion matrices
+    # ===================
     if plot_confusion:
-        cm = confusion_matrix(y, predictions, normalize='true')
-        class_names = label_encoder.inverse_transform(np.arange(len(np.unique(y))))
+        fig, axes = plt.subplots(nrows=1, ncols=n_classes, figsize=(5 * n_classes, 5))
+        if n_classes == 1:
+            axes = [axes]  # Make it iterable
+        
+        for i in range(n_classes):
+            cm = confusion_matrix(y_true[:, i], y_pred[:, i], labels=[0, 1])
+            # Row-wise normalization with division safety
+            row_sums = cm.sum(axis=1, keepdims=True)
+            row_sums[row_sums == 0] = 1   # prevent division-by-zero
+            cm_norm = cm / row_sums
 
-        plt.clf()
-
-        fig, ax = plt.subplots(figsize=(8, 8))
-        sns.heatmap(cm, annot=True, fmt=".2f", cmap="Blues", 
-                    xticklabels=class_names, yticklabels=class_names,
-                    cbar=False, square=True, linewidths=0,
-                    annot_kws={"size": 20},)
-
-        ax.set_xlabel("Predicted Label", fontsize=30, labelpad=20)
-        ax.set_ylabel("True Label", fontsize=30, labelpad=20)
-        ax.set_xticklabels(class_names, fontsize=25, rotation=90)
-        ax.set_yticklabels(class_names, fontsize=25, rotation=0)
-
+                    
+            sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap="Blues",
+                        xticklabels=['No', 'Yes'], yticklabels=['No', 'Yes'],
+                        cbar=False, square=True, annot_kws={"size": 25}, ax=axes[i])
+            axes[i].set_title(class_names[i])
+            axes[i].set_xlabel("Predicted")
+            axes[i].set_ylabel("True")
+        
         plt.tight_layout()
         if plot_path:
             plt.savefig(plot_path, format="png", bbox_inches="tight")
         plt.show()
-    
-    if return_accuracy:
-        label_accuracies = accuracy_score(y, predictions) 
-        return label_accuracies
-    
-    if return_precision:
-        label_precisions = precision_score(y, predictions, average=average, zero_division=0) 
-        return label_precisions
-    
-    if return_recall:
-        label_recalls = recall_score(y, predictions, average=average, zero_division=0)
-        return label_recalls
-    
-    if return_f1:
-        label_f1s = f1_score(y, predictions, average=average, zero_division=0) 
-        return label_f1s
 
+    # ===================
+    # Compute metrics
+    # ===================
+    results = {}
+    if return_accuracy:
+        results['accuracy'] = accuracy_score(y_true, y_pred)
+    if return_precision:
+        results['precision'] = precision_score(y_true, y_pred, average=average, zero_division=0)
+    if return_recall:
+        results['recall'] = recall_score(y_true, y_pred, average=average, zero_division=0)
+    if return_f1:
+        results['f1'] = f1_score(y_true, y_pred, average=average, zero_division=0)
+    
+    if len(results) == 1:
+        return list(results.values())[0]
+    return results
+
+def plot_multiclass_roc(labels, preds, label_encoder=None):
+
+
+    labels = np.array(labels)
+    preds = np.array(preds)
+
+    n_classes = preds.shape[1]
+    possible_classes = np.arange(n_classes)
+    present_classes = np.unique(labels)
+
+    # binarize only for present classes
+    y_bin = label_binarize(labels, classes=possible_classes)
+
+    plt.figure(figsize=(8, 6))
+
+    for c in present_classes:
+        fpr, tpr, _ = roc_curve(y_bin[:, c], preds[:, c])
+        roc_auc = auc(fpr, tpr)
+
+        if label_encoder is not None:
+            name = label_encoder.inverse_transform([c])[0]
+        else:
+            name = f"Class: {c}"
+
+        plt.plot(fpr, tpr, lw=2, label=f"{name} (AUC = {roc_auc:.2f})")
+
+    # chance line
+    plt.plot([0, 1], [0, 1], linestyle='--', color='grey')
+
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve (Only for Classes Present in Labels)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 def plot_signal_and_online_predictions(time, signal, online_avg, online_avg_times, window_length, label_encoder, plot_path=None, half_day_behaviors=None):
     """

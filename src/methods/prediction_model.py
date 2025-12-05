@@ -147,33 +147,50 @@ class dynamic_Conv2D(nn.Module):
     def forward(self, x):
         x = self.CNN(x)
         return self.linear(x)
+    
+class SimpleFeatureNet(nn.Module):
+    """Feature extractor + classifier for multi-label classification."""
 
-class SimpleNN(nn.Module):
-    def __init__(self, input_dim, n_ouputs, hidden_layers, dropout_rate):
-        super(SimpleNN, self).__init__()
+    def __init__(self, input_dim, num_classes, hidden_layers=[128, 64], dropout_rate=0.5):
+        super().__init__()
+
         layers = []
-        prev_dim = input_dim
+        in_dim = input_dim
+
+        # Build hidden layers
         for hidden_dim in hidden_layers:
-            layers.append(nn.Linear(prev_dim, hidden_dim))
+            layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
-            layers.append(nn.Dropout(dropout_rate))
-            prev_dim = hidden_dim
-        layers.append(nn.Linear(prev_dim, n_ouputs))
-        layers.append(nn.Sigmoid())
-        
-        self.network = nn.Sequential(*layers)
+            # layers.append(nn.Dropout(dropout_rate))
+            in_dim = hidden_dim
+
+        self.backbone = nn.Sequential(*layers)
+
+        # Final classifier layer
+        self.classifier = nn.Linear(in_dim, num_classes)
 
     def forward(self, x):
-        return self.network(x)
+        """
+        Args:
+            x: (B, input_dim) input features
+        Returns:
+            feats: (B, last_hidden_dim)
+            logits: (B, num_classes) raw scores (use sigmoid for multi-label)
+        """
+        feats = self.backbone(x)
+        logits = self.classifier(feats)
+        return feats, logits
+
 
 def build_model(model_config, input_dim):
-    """Builds a model based on the config."""
+    """Build a multi-label classification model based on config."""
+
     model_name = model_config['name']
-    
-    if model_name == 'SimpleNN':
-        return SimpleNN(
+
+    if model_name == 'SimpleFeatureNet':
+        return SimpleFeatureNet(
             input_dim=input_dim,
-            n_ouputs=model_config.get('n_ouputs', 3),
+            num_classes=model_config['num_classes'],
             hidden_layers=model_config.get('hidden_layers', [128, 64]),
             dropout_rate=model_config.get('dropout_rate', 0.5)
         )

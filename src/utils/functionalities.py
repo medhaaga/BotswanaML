@@ -95,7 +95,7 @@ def compute_kmeans_distribution(data, n_clusters=100, batch_size=10000, random_s
     # Extract centroids
     centroids = kmeans.cluster_centers_
 
-    return a, centroids, labels
+    return a, centroids, labels, kmeans
 
 def rbf_kernel(X, Y, sigma=1.0):
     """Compute the RBF (Gaussian) kernel between two sets of vectors."""

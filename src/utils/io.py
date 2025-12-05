@@ -48,23 +48,30 @@ def get_RVC_metadata_path():
     path = os.path.join(get_data_path(), 'RVC_merged_metadata.xlsx')
     return path
 
-
 def get_RVC_preprocessed_path():
     path = os.path.join(get_data_path(), 'RVC_preprocessed.csv')
     return path
 
-def get_Vectronics_preprocessed_path(duration):
-    path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration{duration}.csv')
+def get_Vectronics_preprocessed_path(duration=None):
+    if duration is not None:
+        path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration{duration}.csv')
+    else:
+        path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration.csv')
+
+    return path
+
+def get_Vectronics_full_summary_path():
+    path = os.path.join(get_data_path(), f'Vectronics_full_summary.csv')
     return path
 
 def get_video_labels_path():
     data_path = os.path.join(get_project_root(), 'data')
     os.makedirs(data_path, exist_ok=True)
-    path = os.path.join(data_path, 'video_labels.csv')
+    path = os.path.join(data_path, '2025_10_31_awd_video_annotations.csv')
     return path
 
 def get_audio_labels_path():
-    path = os.path.join(get_data_path(), '2025_08_15_awd_audio_annotations.csv')
+    path = os.path.join(get_data_path(), '2025_10_31_awd_audio_annotations.csv')
     return path
 
 def get_RVC_historic_data_path():
@@ -75,12 +82,24 @@ def get_sightings_path():
     path = os.path.join(get_data_path(), 'matched_sightings.csv')
     return path
 
+def get_matched_gps_path():
+    path = os.path.join(get_data_path(), 'matched_gps.csv')
+    return path
+
 def get_gps_moving_path():
     path = os.path.join(get_data_path(), 'GPS_moving.csv')
     return path
 
+def get_matched_gps_moving_path():
+    path = os.path.join(get_data_path(), 'matched_GPS_moving.csv')
+    return path
+
 def get_gps_feeding_path():
     path = os.path.join(get_data_path(), 'GPS_feeding.csv')
+    return path
+
+def get_gps_clusters_path():
+    path = os.path.join(get_data_path(), 'GPS_clusters.csv')
     return path
 
 def get_results_dir():
@@ -154,6 +173,12 @@ def get_sightings_dir():
     sightings_dir = os.path.join(results_dir, 'sightings')
     os.makedirs(sightings_dir, exist_ok=True)
     return sightings_dir
+
+def get_vectronics_eval_dir():
+    results_dir = get_results_dir()
+    vectronics_dir = os.path.join(results_dir, 'vectronics_eval')
+    os.makedirs(vectronics_dir, exist_ok=True)
+    return vectronics_dir
 
 def get_domain_adaptation_results_dir():
     path = os.path.join(get_results_dir(), 'domain_adaptation_training_results')

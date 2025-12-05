@@ -72,4 +72,4 @@ class DANNModel(nn.Module):
         """The forward pass for inference/validation uses only the feature extractor and label classifier."""
         features = self.feature_extractor(x)
         logits = self.label_classifier(features)
-        return logits
+        return features, logits

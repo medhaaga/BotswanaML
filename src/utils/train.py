@@ -30,6 +30,7 @@ def standard_training_epoch(model, optimizer, criterion, train_dataloader, devic
         
         # Forward pass
         outputs = model(batch_X)
+        outputs = outputs[1] if isinstance(outputs, tuple) else outputs
         
         # Calculate loss
         loss = criterion(outputs, batch_y)
@@ -135,34 +136,129 @@ def coral_training_epoch(model, optimizer, criterion, train_dataloader, device, 
     # We return the task loss to be consistent with validation loss metric
     return total_task_loss
 
+def fixmatch_training_epoch(model, optimizer, criterion, train_dataloader, device, args, **kwargs):
+    """
+    One epoch of domain adaptation using FixMatch:
+    - Labeled source data: supervised loss
+    - Labeled target data (partial): supervised loss
+    - Unlabeled target data: FixMatch pseudo-label consistency loss
+
+    Required kwargs:
+        - target_labeled_loader: dataloader for partially labeled target samples
+        - target_unlabeled_loader: dataloader for unlabeled target samples
+        - weak_augment, strong_augment: augmentation functions
+    """
+    model.train()
+    total_loss, total_src, total_tgt_lab, total_unsup = 0.0, 0.0, 0.0, 0.0
+
+    # Extract loaders and augmentation functions
+    target_labeled_train_loader = kwargs.get('target_labeled_train_loader', None)
+    target_unlabeled_loader = kwargs.get('target_unlabeled_loader', None)
+    weak_augment = kwargs.get('weak_augment')
+    strong_augment = kwargs.get('strong_augment')
+
+    if target_labeled_train_loader is None or target_unlabeled_loader is None:
+        raise ValueError("FixMatch requires 'target_labeled_loader' and 'target_unlabeled_loader'.")
+    
+    # Zip loaders together (min-length iteration)
+    for (src_x, src_y), (tgt_x_l, tgt_y_l), (tgt_x_u, _) in zip(train_dataloader, target_labeled_train_loader, target_unlabeled_loader):
+        src_x, src_y = src_x.to(device), src_y.to(device)
+        tgt_x_l, tgt_y_l = tgt_x_l.to(device), tgt_y_l.to(device)
+        tgt_x_u = tgt_x_u.to(device)
+
+        # ============================
+        # (1) Supervised loss - Source
+        # ============================
+        out_src = model(src_x)
+        out_src = out_src[1] if isinstance(out_src, tuple) else out_src
+        loss_src = criterion(out_src, src_y)
+
+        # =====================================
+        # (2) Supervised loss - Target (partial)
+        # =====================================
+        out_tgt_l = model(tgt_x_l)
+        out_tgt_l = out_tgt_l[1] if isinstance(out_tgt_l, tuple) else out_tgt_l
+        loss_tgt_lab = criterion(out_tgt_l, tgt_y_l)
+
+        # ===========================================
+        # (3) Unsupervised FixMatch loss (target unlabeled)
+        # ===========================================
+        # weakly and strongly augmented views
+        weak_x = weak_augment(tgt_x_u)
+        strong_x = strong_augment(tgt_x_u)
+
+        # forward weakly augmented
+        with torch.no_grad():
+            logits_weak = model(weak_x)
+            logits_weak = logits_weak[1] if isinstance(logits_weak, tuple) else logits_weak
+            probs_weak = torch.sigmoid(logits_weak)
+
+            # confidence mask for multi-label
+            mask = (probs_weak > args.fixmatch_threshold).float()
+            pseudo_labels = (probs_weak > 0.5).float()
+
+        # forward strongly augmented
+        logits_strong = model(strong_x)
+        logits_strong = logits_strong[1] if isinstance(logits_strong, tuple) else logits_strong
+        loss_unsup = (F.binary_cross_entropy_with_logits(logits_strong, pseudo_labels, reduction='none') * mask).mean()
+
+        # =======================================
+        # Combine all losses with weighting
+        # =======================================
+        loss = loss_src + args.lambda_target * loss_tgt_lab + args.lambda_unsup * loss_unsup
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        total_src += loss_src.item()
+        total_tgt_lab += loss_tgt_lab.item()
+        total_unsup += loss_unsup.item()
+
+    return total_loss / len(train_dataloader)
 
 #############################################
 ###### Reusable Eval Loop
 ##############################################
 
-def multi_label_eval_loop(model, criterion, dataloader, device):
+def multi_label_eval_loop(model, criterion, dataloader, device, threshold=0.5):
 
-    loss = 0
+    loss = 0.0
     true_labels, predicted_labels, scores = [], [], []
 
+    model.eval()
     with torch.no_grad():
+
         for inputs, labels in dataloader:
 
-            inputs, labels = inputs.to(device), labels.to(device)
-            model_output = model(inputs)
+            inputs = inputs.to(device)
+            labels = labels.to(device)        # shape: (B, C)
+            outputs = model(inputs)
 
-            # Handle models that return tuples (e.g., features, logits)
-            outputs = model_output[1] if isinstance(model_output, tuple) else model_output
-            predictions = torch.argmax(outputs, dim=1)
-            loss += criterion(outputs, labels).cpu().item()
-            true_labels.append(torch.argmax(labels, dim=1).cpu().numpy() if len(labels.shape) > 1 else labels.cpu().numpy())
-            predicted_labels.append(predictions.cpu().numpy())
-            scores.append(F.softmax(outputs, dim=1).cpu().numpy())
+            # Some models return (features, logits)
+            logits = outputs[1] if isinstance(outputs, tuple) else outputs
 
-        loss /= len(dataloader)
-        true_labels = np.concatenate(true_labels)
-        predicted_labels = np.concatenate(predicted_labels)
-        scores = np.concatenate(scores)
+            batch_loss = criterion(logits, labels)
+            loss += batch_loss.item()
+
+            # Probabilities for each class (multi-label)
+            prob = torch.sigmoid(logits)      # shape: (B, C)
+
+            # Predictions by thresholding
+            preds = (prob >= threshold).int() # shape: (B, C)
+
+            true_labels.append(labels.cpu().numpy())
+            predicted_labels.append(preds.cpu().numpy())
+            scores.append(prob.cpu().numpy())
+
+    # Average loss
+    loss /= len(dataloader)
+
+    # Stack all results
+    true_labels = np.vstack(true_labels)
+    predicted_labels = np.vstack(predicted_labels)
+    scores = np.vstack(scores)
 
     return loss, true_labels, predicted_labels, scores
 
@@ -172,7 +268,7 @@ def multi_label_eval_loop(model, criterion, dataloader, device):
 ##############################################
 
 def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, test_dataloader,
-              args, device, training_epoch_fn, **kwargs):
+              args, device, training_epoch_fn, threshold=0.5, **kwargs):
     """
     A generalized training run that accepts a custom function for the training epoch logic.
 
@@ -185,6 +281,9 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
     **kwargs:
         Additional keyword arguments to be passed to the training_epoch_fn (e.g., target_loader).
     """
+    target_labeled_val_loader = kwargs.get('target_labeled_val_loader', None)
+    target_labeled_test_loader = kwargs.get('target_labeled_test_loader', None)
+
     epochs = args.num_epochs
     best_val_loss = float('inf')
     best_model_state_dict = None
@@ -213,15 +312,32 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
         t1 = time.time()
         model.eval()
 
-        val_loss, val_true_classes, val_predictions, val_scores = multi_label_eval_loop(model, criterion, val_dataloader, device)
+        val_loss, val_true_classes, val_predictions, val_scores = multi_label_eval_loop(model, criterion, val_dataloader, device, threshold=threshold)
+        if target_labeled_val_loader is not None:
+            target_val_loss, target_val_true_classes, target_val_predictions, target_val_scores = multi_label_eval_loop(model, criterion, target_labeled_val_loader, device, threshold=threshold)
+        else:
+            target_val_loss = None
+
         
         t2 = time.time()
 
         if val_loss < best_val_loss:
+
+            return_dict.update({
+                'val_true_classes': val_true_classes,
+                'val_predictions': val_predictions,
+                'val_scores': val_scores})
+            
+            if target_labeled_val_loader is not None:
+                return_dict.update({
+                'target_val_true_classes': target_val_true_classes,
+                'target_val_predictions': target_val_predictions,
+                'target_val_scores': target_val_scores})
+
             best_val_loss = val_loss
             best_model_state_dict = copy.deepcopy(model.state_dict())
 
-            test_loss, test_true_classes, test_predictions, test_scores = multi_label_eval_loop(model, criterion, test_dataloader, device)
+            test_loss, test_true_classes, test_predictions, test_scores = multi_label_eval_loop(model, criterion, test_dataloader, device, threshold=threshold)
 
             best_test_outputs = {
                 'test_loss': test_loss,
@@ -230,11 +346,19 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
                 'test_scores': test_scores
             }
 
-            return_dict.update({
-                'val_true_classes': val_true_classes,
-                'val_predictions': val_predictions,
-                'val_scores': val_scores
-            })
+            best_target_test_outputs = {}
+            if target_labeled_test_loader is not None:
+                print('computing target test')
+                tgt_test_loss, tgt_true_classes, tgt_predictions, tgt_scores = multi_label_eval_loop(
+                    model, criterion, target_labeled_test_loader, device, threshold=threshold
+                )
+
+                best_target_test_outputs = {
+                    'target_test_loss': tgt_test_loss,
+                    'target_test_true_classes': tgt_true_classes,
+                    'target_test_predictions': tgt_predictions,
+                    'target_test_scores': tgt_scores
+                }
 
         avg_train_loss = total_train_loss / len(train_dataloader)
         progress_bar.set_description(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f} | Best Val Loss: {best_val_loss:.4f}")
@@ -243,6 +367,7 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
             "epoch": epoch + 1,
             "Training Loss": avg_train_loss,
             "Validation Loss": val_loss,
+            "Target Validation Loss": target_val_loss,
             "Training Time": utils_io.format_time(t1 - t0),
             "Validation Time": utils_io.format_time(t2 - t1),
         })
@@ -256,7 +381,8 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
     return_dict.update({
         'model': model,
         'training_stats': training_stats,
-        **best_test_outputs
+        **best_test_outputs,
+        **best_target_test_outputs
     })
     
     return return_dict
@@ -267,15 +393,16 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
 ##############################################
 
 
-def train_coral(train_loader, val_loader, test_loader, target_loader, args, device):
+def train_coral(train_loader, val_loader, test_loader, target_loader, args, device, threshold=0.5):
     """
     Sets up and runs the training for a domain adaptation model using CORAL.
     This function now uses the generic train_run.
     """
     # 1. Initialize Model, Optimizer, and Criterion
     model = SimpleFeatureNet(args.input_dim, args.feat_dim, args.n_classes).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    criterion_task = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    criterion_task = nn.BCEWithLogitsLoss()
+
 
     # 2. Call the generic training run with the CORAL-specific epoch function
     training_results = train_run(
@@ -285,6 +412,7 @@ def train_coral(train_loader, val_loader, test_loader, target_loader, args, devi
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         test_dataloader=test_loader,
+        threshold=threshold,
         args=args,
         device=device,
         training_epoch_fn=coral_training_epoch,  
@@ -305,15 +433,15 @@ def train_dann(train_loader, val_loader, test_loader, target_loader, args, devic
     dann_model = DANNModel(feat, clf, dom).to(device)
     
     # 3. Create optimizer over all parameters in the container
-    optimizer = optim.Adam(dann_model.parameters(), lr=args.learning_rate)
-    criterion_task = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(dann_model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    criterion_task = nn.BCEWithLogitsLoss()
 
     # 4. Call the generic training run with the DANN-specific epoch function
     return train_run(
         model=dann_model,
         optimizer=optimizer,
         criterion=criterion_task,
-        train_dataloader=train_loader,
+        train_dataloader=train_loader,  
         val_dataloader=val_loader,
         test_dataloader=test_loader,
         args=args,
@@ -321,3 +449,39 @@ def train_dann(train_loader, val_loader, test_loader, target_loader, args, devic
         training_epoch_fn=dann_training_epoch, # <-- Pass the DANN function
         target_loaders=target_loader              # <-- Pass the extra dataloaders
     )
+
+def train_fixmatch(train_loader, val_loader, test_loader,
+                   target_labeled_train_loader, target_labeled_val_loader, target_labeled_test_loader,
+                    target_unlabeled_loader, args, device, weak_augment, strong_augment, threshold=0.5):
+    """
+    Train FixMatch-style domain adaptation with:
+      - Source supervised loss
+      - Target (partial) supervised loss
+      - Unlabeled target FixMatch loss
+    """
+    # Model setup
+    model = SimpleFeatureNet(args.input_dim, args.feat_dim, args.n_classes).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    criterion = nn.BCEWithLogitsLoss()
+
+    # Use the generic training run with FixMatch-specific epoch
+    training_results = train_run(
+        model=model,
+        optimizer=optimizer,
+        criterion=criterion,
+        train_dataloader=train_loader,     # source labeled
+        val_dataloader=val_loader,
+        test_dataloader=test_loader,
+        args=args,
+        device=device,
+        threshold=threshold,
+        training_epoch_fn=fixmatch_training_epoch,
+        target_labeled_train_loader=target_labeled_train_loader,
+        target_labeled_val_loader=target_labeled_val_loader,
+        target_labeled_test_loader=target_labeled_test_loader,
+        target_unlabeled_loader=target_unlabeled_loader,
+        weak_augment=weak_augment,
+        strong_augment=strong_augment
+    )
+
+    return training_results

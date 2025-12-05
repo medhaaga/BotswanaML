@@ -56,20 +56,45 @@ def load_Vectronics_data_metadata():
 
     return acc_data, acc_metadata
 
-def windowed_ptp_stats(arr, window=32):
-    n_full_windows = len(arr) // window
-    if n_full_windows == 0:
-        return np.nan, np.nan  # Not enough data
 
-    ptp_values = [np.ptp(arr[i*window:(i+1)*window]) for i in range(n_full_windows)]
-    return np.max(ptp_values), np.mean(ptp_values)
+def windowed_ptp_stats(arr, sub_window):
+    """
+    arr: numpy array of shape (W,)
+    sub_window: integer (e.g., 2 * sampling_rate)
 
-# Apply to each column and create new stats columns
-def process_column(df, col, sampling_rate=16):
-    df[[f'{col}_ptp_max', f'{col}_ptp_mean']] = df[col].apply(
-        lambda arr: pd.Series(windowed_ptp_stats(arr, window=int(2*sampling_rate)))
-    )
-    return df
+    Returns (max_ptp, mean_ptp) as float32
+    """
+    arr = np.asarray(arr)
+
+    n = arr.shape[0]
+    n_full = n // sub_window
+    if n_full == 0:
+        return np.float32(np.nan), np.float32(np.nan)
+
+    # reshape to (num_windows, window_size)
+    trimmed = arr[:n_full * sub_window].reshape(n_full, sub_window)
+
+    ptp_vals = trimmed.ptp(axis=1)
+    return np.float32(ptp_vals.max()), np.float32(ptp_vals.mean())
+
+def process_column_vectorized(arr_matrix, sampling_rate=16):
+    """
+    arr_matrix: shape (num_windows, window_len)
+    Returns dict with ptp_max and ptp_mean for all windows
+    """
+
+    sub_window = 2 * sampling_rate
+    num_windows = arr_matrix.shape[0]
+
+    ptp_max = np.zeros(num_windows, dtype=np.float32)
+    ptp_mean = np.zeros(num_windows, dtype=np.float32)
+
+    for i in range(num_windows):
+        mx, mn = windowed_ptp_stats(arr_matrix[i], sub_window)
+        ptp_max[i] = mx
+        ptp_mean[i] = mn
+
+    return ptp_max, ptp_mean
 
 def split_row(row, chunk_size=480, sampling_rate=16):
     window_duration = chunk_size/sampling_rate
@@ -91,7 +116,9 @@ def split_row(row, chunk_size=480, sampling_rate=16):
             'acc_y': row['acc_y'][start:end],
             'acc_z': row['acc_z'][start:end],
             'duration': chunk_size / sampling_rate,
-            'Source': row['Source']
+            'Source': row['Source'],
+            'Confidence (H-M-L)': row['Confidence (H-M-L)'],
+            'Eating intensity': row['Eating intensity']
         })
 
     if remainder > 0:
@@ -104,7 +131,9 @@ def split_row(row, chunk_size=480, sampling_rate=16):
             'acc_y': row['acc_y'][-remainder:],
             'acc_z': row['acc_z'][-remainder:],
             'duration': remainder / sampling_rate,
-            'Source': row['Source']
+            'Source': row['Source'],
+            'Confidence (H-M-L)': row['Confidence (H-M-L)'],
+            'Eating intensity': row['Eating intensity']
         })
 
     return chunks
@@ -119,13 +148,27 @@ def create_max_windows(acc_data, window_duration=30.0, sampling_rate=16):
     acc_data_split = pd.DataFrame(split_chunks)
     return acc_data_split
 
+
+def add_ptp_features(df, sampling_rate=16):
+    for col in ["acc_x", "acc_y", "acc_z"]:
+
+        arr_matrix = np.stack(df[col].values)  # shape (num_windows, window_len)
+
+        ptp_max, ptp_mean = process_column_vectorized(arr_matrix, sampling_rate)
+
+        df[f"{col}_ptp_max"] = ptp_max
+        df[f"{col}_ptp_mean"] = ptp_mean
+
+    return df
+
 def create_summary_data(acc_data_split, sampling_rate=16):
     acc_data_split['acc_x_mean'] = acc_data_split['acc_x'].apply(np.mean)
     acc_data_split['acc_y_mean'] = acc_data_split['acc_y'].apply(np.mean)
     acc_data_split['acc_z_mean'] = acc_data_split['acc_z'].apply(np.mean)
 
-    for col in ['acc_x', 'acc_y', 'acc_z']:
-        acc_data_split = process_column(acc_data_split, col, sampling_rate=sampling_rate)
+    acc_data_split = add_ptp_features(acc_data_split, sampling_rate=sampling_rate)
+
+    acc_data_split = acc_data_split.drop(columns=['acc_x', 'acc_y', 'acc_z'])
 
     return acc_data_split
 
@@ -151,3 +194,121 @@ def create_data_splits(acc_data, feature_cols, test_size=0.2, val_size=0.25):
     X_val, y_val = X_train_val[val_idx], y_train_val[val_idx]
 
     return X_train, y_train, X_val, y_val, X_test, y_test
+
+# creatng windows from continuous unlabeled data
+
+def create_windowed_features(df, sampling_frequency=16, window_duration=None, window_length=None):
+
+    if window_length is None and window_duration is None:
+        raise ValueError('A window length/duration for the classification model is required.')
+
+    if window_length is None:
+        window_length = int(window_duration * sampling_frequency)
+
+    if window_length is not None and window_duration is not None:
+        assert window_length == int(window_duration * sampling_frequency), \
+            "window length and window duration are not compatible according to provided sampling frequency."
+
+    N = len(df)
+
+    # non-overlapping windows
+    num_windows = N // window_length
+    if num_windows == 0:
+        return pd.DataFrame()
+
+    # slice arrays into contiguous windows (vectorized)
+    def window_stack(col):
+        arr = df[col].values.astype(np.float32)
+        return arr[:num_windows * window_length].reshape(num_windows, window_length)
+
+    X = window_stack('Acc X [g]')
+    Y = window_stack('Acc Y [g]')
+    Z = window_stack('Acc Z [g]')
+
+    # timestamps
+    ts = df['Timestamp'].values
+    ts_start = ts[0:num_windows * window_length:window_length]
+    ts_end   = ts[window_length - 1 : num_windows * window_length : window_length]
+
+    # means
+    x_mean = X.mean(axis=1).astype(np.float32)
+    y_mean = Y.mean(axis=1).astype(np.float32)
+    z_mean = Z.mean(axis=1).astype(np.float32)
+
+    # vectorized PTP stats
+    x_ptp_max, x_ptp_mean = process_column_vectorized(X, sampling_rate=16)
+    y_ptp_max, y_ptp_mean = process_column_vectorized(Y, sampling_rate=16)
+    z_ptp_max, z_ptp_mean = process_column_vectorized(Z, sampling_rate=16)
+
+    # Build DataFrame (scalar columns only)
+    out = pd.DataFrame({
+        'Timestamp start [yyyy-mm-dd HH:MM:SS]': ts_start,
+        'Timestamp end [yyyy-mm-dd HH:MM:SS]': ts_end,
+        'acc_x_mean': x_mean,
+        'acc_y_mean': y_mean,
+        'acc_z_mean': z_mean,
+        'acc_x_ptp_max': x_ptp_max,
+        'acc_x_ptp_mean': x_ptp_mean,
+        'acc_y_ptp_max': y_ptp_max,
+        'acc_y_ptp_mean': y_ptp_mean,
+        'acc_z_ptp_max': z_ptp_max,
+        'acc_z_ptp_mean': z_ptp_mean,
+    })
+
+    # -------- NEW: remove windows with timestamp gaps --------
+    actual_duration = (out['Timestamp end [yyyy-mm-dd HH:MM:SS]'] -
+                       out['Timestamp start [yyyy-mm-dd HH:MM:SS]']).dt.total_seconds()
+
+    out = out[actual_duration <= window_duration].reset_index(drop=True)
+
+    return out
+
+def modify_vectronics_labels(df, model_name='A'):
+
+    if model_name == 'A':
+        return df
+    elif model_name == 'B':
+        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
+    elif model_name == 'C':
+        # modify 'Feeding' labels based on eating intensity
+        df['behavior'] = df.apply(
+                lambda row: (
+                    'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
+                    else row['behavior']
+                ),
+                axis=1
+            )
+    elif model_name == 'D':
+        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
+
+        # modify 'Feeding' labels based on eating intensity
+        df['behavior'] = df.apply(
+            lambda row: (
+                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
+                else row['behavior']
+            ),
+            axis=1
+        )
+    elif model_name == 'E':
+        df['behavior'] = df.apply(
+            lambda row: (
+                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
+                else row['behavior']
+            ),
+            axis=1
+        )
+        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
+    
+    elif model_name == 'F':
+        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
+        df['behavior'] = df.apply(
+            lambda row: (
+                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
+                else row['behavior']
+            ),
+            axis=1
+        )
+        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
+    return df
