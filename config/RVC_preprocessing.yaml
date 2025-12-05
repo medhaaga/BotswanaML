@@ -1,0 +1,21 @@
+feature_cols:
+  - acc_x_ptp_max
+  - acc_y_ptp_max
+  - acc_z_ptp_max
+  - acc_x_ptp_mean
+  - acc_y_ptp_mean
+  - acc_z_ptp_mean
+  # - acc_x_mean
+  # - acc_y_mean
+  # - acc_z_mean
+
+helper_cols:
+  - UTC time [yyyy-mm-dd HH:MM:SS]
+  - UTC date [yyyy-mm-dd]
+  - animal_id
+  - collar_number
+  - range
+  - firmware_major_version
+  - est_dist_m_smooth
+  - resting_binary
+  - moving_binary
