@@ -28,12 +28,9 @@ After installation, restart your terminal and verify:
 conda --version
 ```
 
-This repository provides an environment file to automatically install required dependencies (excluding PyTorch).
-
-From the project directory:
-
+Create a conda environment:
 ```bash
-conda env create -f environment.yml
+conda create -n wildlife python=3.11 numpy scipy pandas scikit-learn matplotlib seaborn ipython jupyterlab -c conda-forge 
 ```
 
 Then activate the environment:
@@ -41,7 +38,10 @@ Then activate the environment:
 ```bash
 conda activate wildlife
 ```
-
+Install pip dependencies:
+```bash
+pip install pot==0.9.5 tqdm
+```
 To confirm:
 
 ```bash
