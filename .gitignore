@@ -18,7 +18,7 @@ __pycache__/
 *.json
 *.pt
 *.so
-*.yml
+
 
 # Distribution / packaging
 .Python
@@ -174,3 +174,4 @@ cython_debug/
 #.idea/
 results/
 test/
+data/
