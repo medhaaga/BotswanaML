@@ -29,7 +29,7 @@ dependencies:
   - debugpy=1.6.7=py311h6a678d5_0
   - decorator=5.1.1=pyhd3eb1b0_0
   - executing=0.8.3=pyhd3eb1b0_0
-  - ffmpeg=4.3=hf484d3e_0
+  - ffmpeg
   - filelock=3.13.1=py311h06a4308_0
   - fonttools=4.51.0=py311h5eee18b_0
   - freetype=2.12.1=h4a9f257_0
@@ -69,7 +69,7 @@ dependencies:
   - libgomp=11.2.0=h1234567_1
   - libiconv=1.16=h5eee18b_3
   - libidn2=2.3.4=h5eee18b_0
-  - libjpeg-turbo=2.0.0=h9bf148f_0
+  - libjpeg-turbo
   - libnpp=12.0.2.50=0
   - libnvjitlink=12.1.105=0
   - libnvjpeg=12.1.1.14=0
