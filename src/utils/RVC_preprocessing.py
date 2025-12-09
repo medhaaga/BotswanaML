@@ -12,7 +12,7 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Removed {before_shape[0] - after_shape[0]} duplicates.")
     return df
 
-def preprocess_data(df, metadata_df, feature_cols, helper_cols, summary_dir=None):
+def preprocess_data(df, metadata_df, summary_dir=None):
     # Remove duplicates
     df = remove_duplicates(df)
 
@@ -31,9 +31,6 @@ def preprocess_data(df, metadata_df, feature_cols, helper_cols, summary_dir=None
         grouped_df.to_csv(f"{summary_dir}/truncated_RVC_data_summary.csv", index=False)
     df['UTC date [yyyy-mm-dd]'] = pd.to_datetime(df['UTC date [yyyy-mm-dd]'])
     df = df[df['UTC date [yyyy-mm-dd]'].dt.year >= 2000]
-
-    # Select columns
-    df = df[feature_cols + helper_cols]
 
     return df
 

@@ -7,6 +7,7 @@ VECTRONICS_PREPROCESSING_YAML = os.path.join(BASE_DIR, 'Vectronics_preprocessing
 
 HISTORIC_ACC_UNANNOTATED = '/mnt/ssd/medhaaga/wildlife/historic/unannotated'
 HISTORIC_ACC_ANNOTATED = '/mnt/ssd/medhaaga/wildlife/historic/annotated'
+HISTORIC_ACC_ANNOTATED_COMBINED = '/mnt/ssd/medhaaga/wildlife/historic/2025_12_05_acceleration_annotated.csv'
 
 
 # dictionary with individual ID as key and path to the directory which stores that individual's acceleration CSV files as value.

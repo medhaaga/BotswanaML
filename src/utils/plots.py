@@ -132,7 +132,7 @@ def plot_multiclass_roc(labels, preds, label_encoder=None):
 
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
-    plt.title("ROC Curve (Only for Classes Present in Labels)")
+    plt.title("ROC Curve")
     plt.legend()
     plt.grid(True)
     plt.show()

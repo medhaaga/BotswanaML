@@ -14,11 +14,11 @@ import src.utils.io as io
 import src.utils.datasets as datasets
 from src.utils import preprocess
 from src.utils.train import train_fixmatch
+from src.utils.Vectronics_preprocessing import modify_vectronics_labels
 from src.utils.data_prep import setup_multilabel_dataloaders
 import config as config
 from sklearn.preprocessing import LabelEncoder
-from src.eval.eval_utils import evaluate_label_distribution
-from src.eval.plot_utils import make_sightings_plots_from_model
+from src.eval.eval_utils import evaluate_multilabel_distribution
 
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
@@ -31,8 +31,6 @@ def parse_arguments():
                         help="Indices of positive-only features")
     parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
                         help="Indices of zero-centered features")
-    parser.add_argument("--remove_outliers", type=int, default=1,
-                        help="whether to remove target samples outside the source domain")
 
     # ---------------- Preprocessing ----------------
     parser.add_argument("--n_sample_per_target", type=int, default=200000,
@@ -43,7 +41,6 @@ def parse_arguments():
                         help="Dimension of feature extractor's hidden layer")
     parser.add_argument("--fixmatch_threshold", type=float, default=0.95,
                         help="Threshold for classifying as strong label")    
-    parser.add_argument("--model_name", type=str, default='A', help="Model name for saving results")
 
     # ---------------- Training ----------------
     parser.add_argument("--theta", type=float, default=0.3)
@@ -52,10 +49,9 @@ def parse_arguments():
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay (L2 regularization)")
     parser.add_argument("--source_test_frac", type=float, default=0.2, help="Fraction of train set to reserve for validation")
-    parser.add_argument("--target_test_frac", type=float, default=0.005, help="Fraction of train set to reserve for validation")
-    parser.add_argument("--lambda_target", type=float, default=100.0,
+    parser.add_argument("--lambda_target", type=float, default=1.0,
                         help="Weight for labeled target loss")
-    parser.add_argument("--lambda_unsup", type=float, default=0.1,
+    parser.add_argument("--lambda_unsup", type=float, default=0.0,
                         help="Weight for unlabaled target loss")
 
     # ---------------- Output ----------------
@@ -75,57 +71,6 @@ def strong_augment(x, noise_std=0.05, dropout_prob=0.1):
     x_aug[mask] = 0  # random feature dropout
     return x_aug
 
-def modify_vectronics_labels(df, model_name='A'):
-
-    if model_name == 'A':
-        return df
-    elif model_name == 'B':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
-    elif model_name == 'C':
-        # modify 'Feeding' labels based on eating intensity
-        df['behavior'] = df.apply(
-                lambda row: (
-                    'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
-                    else row['behavior']
-                ),
-                axis=1
-            )
-    elif model_name == 'D':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
-
-        # modify 'Feeding' labels based on eating intensity
-        df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
-                else row['behavior']
-            ),
-            axis=1
-        )
-    elif model_name == 'E':
-        df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
-                else row['behavior']
-            ),
-            axis=1
-        )
-        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
-    
-    elif model_name == 'F':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
-        df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
-                else row['behavior']
-            ),
-            axis=1
-        )
-        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
-    else:
-        raise ValueError(f"Unknown model name: {model_name}")
-    return df
-
-
 
 def main():
     # --------------------------
@@ -138,7 +83,7 @@ def main():
         root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "fixmatch_self_supervised")
     else:
         root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "fixmatch_semi_supervised", f"lambda{args.lambda_target}")
-        
+    
     os.makedirs(root_dir, exist_ok=True)
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
@@ -153,66 +98,40 @@ def main():
         Vectronics_preprocessing_config = yaml.safe_load(f)
     Vectronics_feature_cols = Vectronics_preprocessing_config['feature_cols']
 
-    min_duration_before_padding = 15.0
-    vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(min_duration_before_padding))
-    vectronics_df = modify_vectronics_labels(vectronics_df, model_name=args.model_name)
-    
-    X_src = vectronics_df[Vectronics_feature_cols].values
-    y_src = vectronics_df['behavior'].values
+    window_duration = 30.0
+    print("Loading lableded source data (Vectronics)...")
+    labeled_vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(window_duration))
+    labeled_vectronics_df = modify_vectronics_labels(labeled_vectronics_df)
 
-    args.input_dim = X_src.shape[-1]
-    args.n_classes = len(np.unique(y_src))
+    print("Loading target data (RVC)...")
+    RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
+    RVC_df = RVC_df.drop_duplicates().reset_index(drop=True)
+
+    # create labeled source, unlabeled source, and target data tensors
+    X_src = labeled_vectronics_df[Vectronics_feature_cols].values
+    y_src = labeled_vectronics_df['behavior'].values
 
     # encode the labels
     label_encoder = LabelEncoder()
     y_src = label_encoder.fit_transform(y_src)
     n_classes = len(np.unique(y_src))
 
-    print("Loading target data (RVC)...")
-    RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
-    RVC_df = RVC_df.drop_duplicates().reset_index(drop=True)
+    args.input_dim = X_src.shape[-1]
+    args.n_classes = len(np.unique(y_src))
 
-    if args.remove_outliers:
-        left_limit = np.quantile(X_src, 0.0, axis=0)
-        right_limit = np.quantile(X_src, 1.0, axis=0)
-        right_limit = np.where(right_limit == left_limit, left_limit + 1e-6, right_limit)
-    
-        Xt = RVC_df[Vectronics_feature_cols].values
-        mask = (Xt >= left_limit).all(axis=1) & (Xt <= right_limit).all(axis=1) & (Xt > 0.0).all(axis=1)
-        RVC_df = RVC_df[mask].reset_index(drop=True)
+    left_limit = np.quantile(X_src, 0.0, axis=0)
+    right_limit = np.quantile(X_src, 1.0, axis=0)
+    right_limit = np.where(right_limit == left_limit, left_limit + 1e-6, right_limit)
 
-    cols = ['feeding_binary', 'moving_binary', 'resting_binary']
-    RVC_df[cols] = RVC_df[cols].fillna(0)
-    RVC_df['behavior'] = np.select(
-    [
-        RVC_df['feeding_binary'] == 1,
-        RVC_df['moving_binary'] == 1,
-        RVC_df['resting_binary'] == 1
-    ],
-    ['Feeding', 'Moving', 'Stationary'], default=None) 
+    Xt = RVC_df[Vectronics_feature_cols].values
+    mask = (Xt >= left_limit).all(axis=1) & (Xt <= right_limit).all(axis=1) & (Xt > 0.0).all(axis=1)
+    RVC_df = RVC_df[mask].reset_index(drop=True)
 
     labeled_mask = RVC_df['behavior'].notna()
 
-    RVC_labeled_df = RVC_df[labeled_mask]
-    RVC_unlabaled_df = RVC_df[~labeled_mask] 
-
-    X_labeled_targets = [RVC_labeled_df.loc[RVC_labeled_df.firmware_major_version == 2.0][Vectronics_feature_cols].values,
-                            RVC_labeled_df.loc[RVC_labeled_df.firmware_major_version == 3.0][Vectronics_feature_cols].values]
-    y_labeled_targets = [RVC_labeled_df.loc[RVC_labeled_df.firmware_major_version == 2.0]['behavior'].values,
-                            RVC_labeled_df.loc[RVC_labeled_df.firmware_major_version == 3.0]['behavior'].values]
-    y_labeled_targets = [label_encoder.transform(y) for y in y_labeled_targets]
-
-
-    X_unlabeled_targets = [RVC_unlabaled_df.loc[RVC_unlabaled_df.firmware_major_version == 2.0][Vectronics_feature_cols].values,
-                            RVC_unlabaled_df.loc[RVC_unlabaled_df.firmware_major_version == 3.0][Vectronics_feature_cols].values]
+    RVC_labeled_df = RVC_df[labeled_mask].reset_index(drop=True)
+    RVC_unlabeled_df = RVC_df[~labeled_mask].reset_index(drop=True)
     
-    
-    print(f"Source data: {X_src.shape}")
-    for i in range(2):
-        print(f"Labeled Target data {i+1}: {X_labeled_targets[i].shape}")
-        print(f"Unlabeled Target data {i+1}: {X_unlabeled_targets[i].shape}")
-    print(f"Number of classes: {n_classes}")
-
     # --------------------------
     # create datasets and dataloaders 
     # --------------------------
@@ -240,69 +159,64 @@ def main():
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
     train_loader, val_loader, test_loader = setup_multilabel_dataloaders(X_train, y_train, X_val, y_val, X_test, y_test, args, n_outputs=n_classes, transform=transform)
 
-    print("Source shapes:")
-    print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}, Num of classes: {len(np.unique(y_src))}")
+    print("SOURCE SHAPES:")
+    print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+    classes, counts = np.unique(y_src, return_counts=True)
+    print(f"Class distribution:")
+    for cls, count in zip(classes, counts):
+        print(f" - {label_encoder.inverse_transform([cls])[0]}: {count}, ({count / X_src.shape[0]:.2%})")
+    print("")
 
-    # creating dataloaders for labaled test data
+    # creating dataloaders for labeled test data
     target_labeled_train_loaders = []
     target_labeled_test_loaders = []
     target_labeled_val_loaders = []
     target_unlabeled_loaders = []
 
-    for i in range(len(X_unlabeled_targets)):
-        
-        # split into train/test
-        X_t_train, X_t_temp, y_t_train, y_t_temp = train_test_split(X_labeled_targets[i], y_labeled_targets[i], 
-                                                                    test_size=2*args.target_test_frac, 
-                                                                    random_state=42, stratify=y_labeled_targets[i])
-        X_t_val, X_t_test, y_t_val, y_t_test = train_test_split(X_t_temp, y_t_temp, 
-                                                                test_size=0.5, 
-                                                                random_state=42, stratify=y_t_temp)
-        if i==0:
-            print("Target-1 shapes:")
-            print(f"Train: {X_t_train.shape}, Val: {X_t_val.shape}, Test: {X_t_test.shape}, Num of classes: {len(np.unique(y_labeled_targets[i]))}")
-        target_l_train_loader, target_l_val_loader, target_l_test_loader = setup_multilabel_dataloaders(X_t_train, y_t_train, 
-                                                                                                        X_t_val, y_t_val, 
-                                                                                                        X_t_test, y_t_test, 
-                                                                                                        args, n_outputs=n_classes,
-                                                                                                        transform=transform)
-        
-        target_u_ds = datasets.NumpyDataset(X=X_unlabeled_targets[i], y=None, transform=transform)
-        target_u_loader = DataLoader(target_u_ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    for i, sensor_version in enumerate(RVC_df.firmware_major_version.unique().astype(int)):
 
+        df = RVC_labeled_df.loc[(RVC_labeled_df.behavior == 'Feeding') & (RVC_labeled_df.firmware_major_version == sensor_version)].reset_index(drop=True)
+        group_ids = list(df.groupby(['animal_id', 'UTC date [yyyy-mm-dd]']).groups.keys())
+        n_feeding_days = len(group_ids)
+        train_feeding_days, val_feeding_days, test_feeding_days = group_ids[:int(0.5*n_feeding_days)], \
+                                                                    group_ids[int(0.5*n_feeding_days): int(0.75*n_feeding_days)], \
+                                                                    group_ids[int(0.75*n_feeding_days): ]
+        train_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(train_feeding_days)
+        val_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(val_feeding_days)
+        test_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(test_feeding_days)
+
+        X_t_train, y_t_train = RVC_labeled_df[train_mask][Vectronics_feature_cols].values, RVC_labeled_df[train_mask]['behavior'].values
+        X_t_val, y_t_val = RVC_labeled_df[val_mask][Vectronics_feature_cols].values, RVC_labeled_df[val_mask]['behavior'].values
+        X_t_test, y_t_test = RVC_labeled_df[test_mask][Vectronics_feature_cols].values, RVC_labeled_df[test_mask]['behavior'].values
+        n_target = X_t_train.shape[0] + X_t_val.shape[0] + X_t_test.shape[0]
+
+        y_t_train = label_encoder.transform(y_t_train)
+        y_t_val = label_encoder.transform(y_t_val)
+        y_t_test = label_encoder.transform(y_t_test)
+        
+        print(f"TARGET - {i+1} SHAPES:")
+        print(f"Train: {X_t_train.shape}, Val: {X_t_val.shape}, Test: {X_t_test.shape}")
+        classes, counts = np.unique(np.concatenate([y_t_train, y_t_val, y_t_test]), return_counts=True)
+        print(f"Class distribution:")
+        for cls, count in zip(classes, counts):
+            print(f" - {label_encoder.inverse_transform([cls])[0]}: {count}, ({count / n_target:.2%})")
+        print("")
+
+        target_l_train_loader, target_l_val_loader, target_l_test_loader = setup_multilabel_dataloaders(X_t_train, y_t_train, 
+                                                                                                            X_t_val, y_t_val, 
+                                                                                                            X_t_test, y_t_test, 
+                                                                                                            args, n_outputs=n_classes,
+                                                                                                            transform=transform)
         target_labeled_train_loaders.append(target_l_train_loader)
         target_labeled_val_loaders.append(target_l_val_loader)
         target_labeled_test_loaders.append(target_l_test_loader)
+
+        target_u_ds = datasets.NumpyDataset(X=RVC_unlabeled_df.loc[RVC_unlabeled_df.firmware_major_version == sensor_version][Vectronics_feature_cols].values, y=None, transform=transform)
+        target_u_loader = DataLoader(target_u_ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
         target_unlabeled_loaders.append(target_u_loader)
-
-    sightings = pd.read_csv(io.get_sightings_path())
-    group_ids = list(sightings.groupby(['animal_id', 'UTC date [yyyy-mm-dd]']).groups.keys())
-    n_sightings_days = len(group_ids)
-    train_sightings, val_sightings, test_sightings = group_ids[:int(0.5*n_sightings_days)], group_ids[int(0.5*n_sightings_days): int(0.75*n_sightings_days)], group_ids[int(0.75*n_sightings_days): ]
-    train_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(train_sightings)
-    val_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(val_sightings)
-    test_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(test_sightings)
-
-    X_t_train, y_t_train = RVC_labeled_df[train_mask][Vectronics_feature_cols].values, RVC_labeled_df[train_mask]['behavior'].values
-    X_t_val, y_t_val = RVC_labeled_df[val_mask][Vectronics_feature_cols].values, RVC_labeled_df[val_mask]['behavior'].values
-    X_t_test, y_t_test = RVC_labeled_df[test_mask][Vectronics_feature_cols].values, RVC_labeled_df[test_mask]['behavior'].values
-    y_t_train = label_encoder.transform(y_t_train)
-    y_t_val = label_encoder.transform(y_t_val)
-    y_t_test = label_encoder.transform(y_t_test)
-    print("Target-2 shapes:")
-    print(f"Train: {X_t_train.shape}, Val: {X_t_val.shape}, Test: {X_t_test.shape}, Num of classes: {len(np.unique(y_t_train))}")
-
-    target_l_train_loader, target_l_val_loader, target_l_test_loader = setup_multilabel_dataloaders(X_t_train, y_t_train, 
-                                                                                                        X_t_val, y_t_val, 
-                                                                                                        X_t_test, y_t_test, 
-                                                                                                        args, n_outputs=n_classes,
-                                                                                                        transform=transform)
-    target_labeled_train_loaders[-1] = target_l_train_loader
-    target_labeled_val_loaders[-1] = target_l_val_loader
-    target_labeled_test_loaders[-1] = target_l_test_loader
     
 
-    for i in range(len(X_unlabeled_targets)):
+    for i, sensor_version in enumerate(RVC_df.firmware_major_version.unique().astype(int)):
 
         print(f"Training FixMatch for target domain {i+1}...")
 
@@ -329,7 +243,7 @@ def main():
         ##############################################
 
         
-        dir = os.path.join(root_dir, args.model_name, f'target{i+1}')
+        dir = os.path.join(root_dir, f'target{i+1}')
         os.makedirs(dir, exist_ok=True)
         print(dir)
 
@@ -376,34 +290,14 @@ def main():
         ###### Evaluation
         ##############################################
 
-        eval_df = RVC_df.loc[RVC_df.firmware_major_version == (2.0+i)].reset_index(drop=True)
+        eval_df = RVC_df.loc[RVC_df.firmware_major_version == sensor_version].reset_index(drop=True)
 
-        _, _, _ = evaluate_label_distribution(model=model, 
+        _, _, _ = evaluate_multilabel_distribution(model=model, 
                                             data=transform(torch.tensor(eval_df[Vectronics_feature_cols].values, dtype=torch.float32)),
-                                            n_classes=n_classes, 
                                             label_encoder=label_encoder,
                                             device=device, 
+                                            threshold=0.5,
                                             verbose=True)
         
-        # plot sightings
-        matched_sightings = pd.read_csv(io.get_sightings_path())
-        matched_gps = pd.read_csv(io.get_matched_gps_path())
-        matched_gps_moving = pd.read_csv(io.get_gps_moving_path())
-
-        if args.lambda_target == 0.0:
-            plot_dir = os.path.join(io.get_sightings_dir(), 'fixmatch_self_supervised', args.model_name, 'uncalibrated')
-        else:
-            plot_dir = os.path.join(io.get_sightings_dir(), 'fixmatch_semi_supervised', f"lambda{args.lambda_target}", args.model_name, 'uncalibrated')
-
-        os.makedirs(plot_dir, exist_ok=True)
-        make_sightings_plots_from_model(model=model, 
-                                   data=transform(torch.tensor(eval_df[Vectronics_feature_cols].values, dtype=torch.float32)),
-                                   metadata=eval_df,
-                                   matched_sightings=matched_sightings, 
-                                   matched_gps=matched_gps,
-                                   matched_gps_moving=matched_gps_moving, 
-                                   device=device,
-                                   plot_dir=plot_dir)
-
 if __name__ == "__main__":
     main()

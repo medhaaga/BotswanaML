@@ -348,7 +348,6 @@ def train_run(model, optimizer, criterion, train_dataloader, val_dataloader, tes
 
             best_target_test_outputs = {}
             if target_labeled_test_loader is not None:
-                print('computing target test')
                 tgt_test_loss, tgt_true_classes, tgt_predictions, tgt_scores = multi_label_eval_loop(
                     model, criterion, target_labeled_test_loader, device, threshold=threshold
                 )

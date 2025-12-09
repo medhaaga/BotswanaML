@@ -263,52 +263,44 @@ def create_windowed_features(df, sampling_frequency=16, window_duration=None, wi
 
     return out
 
-def modify_vectronics_labels(df, model_name='A'):
+def modify_vectronics_labels(
+    df,
+    keep_confidence_levels=None,        # e.g., ['H', 'H/M']
+    eating_to_other=None,               # e.g., ['M', 'L']
+    eating_to_exclude=None               # e.g., ['M']
+):
+    """
+    Modify behavior labels in a dataframe based on confidence and eating intensity.
 
-    if model_name == 'A':
-        return df
-    elif model_name == 'B':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
-    elif model_name == 'C':
-        # modify 'Feeding' labels based on eating intensity
-        df['behavior'] = df.apply(
-                lambda row: (
-                    'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
-                    else row['behavior']
-                ),
-                axis=1
-            )
-    elif model_name == 'D':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
+    Args:
+        df (pd.DataFrame): Input dataframe with columns 'Confidence (H-M-L)', 'behavior', 'Eating intensity'.
+        keep_confidence_levels (list[str], optional): Confidence levels to keep. Rows not in this list are dropped.
+        eating_to_other (list[str], optional): Eating intensities that should be converted to 'Other' behavior.
+        eating_to_exclude (list[str], optional): Eating intensities to exclude for 'Eating' behavior after modification.
 
-        # modify 'Feeding' labels based on eating intensity
+    Returns:
+        pd.DataFrame: Modified dataframe.
+    """
+
+    df = df.copy()
+
+    # Filter by confidence if specified
+    if keep_confidence_levels is not None:
+        df = df[df['Confidence (H-M-L)'].isin(keep_confidence_levels)].reset_index(drop=True)
+
+    # Convert certain Eating intensities to 'Other'
+    if eating_to_other is not None:
         df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['M', 'L'])
-                else row['behavior']
-            ),
+            lambda row: 'Other' if (row['behavior'] == 'Eating' and
+                                    pd.notna(row['Eating intensity']) and
+                                    row['Eating intensity'] in eating_to_other)
+                        else row['behavior'],
             axis=1
         )
-    elif model_name == 'E':
-        df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
-                else row['behavior']
-            ),
-            axis=1
-        )
-        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
-    
-    elif model_name == 'F':
-        df =  df[df['Confidence (H-M-L)'].isin(['H', 'H/M'])].reset_index(drop=True)
-        df['behavior'] = df.apply(
-            lambda row: (
-                'Other' if (pd.notna(row['Eating intensity']) and row['Eating intensity'] in ['L'])
-                else row['behavior']
-            ),
-            axis=1
-        )
-        df = df.loc[~((df["behavior"] == "Eating") & (df["Eating intensity"] == "M"))].reset_index(drop=True)
-    else:
-        raise ValueError(f"Unknown model name: {model_name}")
+
+    # Exclude certain Eating intensities
+    if eating_to_exclude is not None:
+        df = df.loc[~((df['behavior'] == 'Eating') &
+                      df['Eating intensity'].isin(eating_to_exclude))].reset_index(drop=True)
+
     return df

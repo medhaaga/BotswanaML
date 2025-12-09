@@ -30,7 +30,7 @@ conda --version
 
 Create a conda environment:
 ```bash
-conda create -n wildlife python=3.11 numpy scipy pandas scikit-learn matplotlib seaborn ipython jupyterlab -c conda-forge 
+conda create -n wildlife python=3.11 numpy scipy pandas scikit-learn matplotlib seaborn ipython jupyterlab PyYAML -c conda-forge 
 ```
 
 Then activate the environment:

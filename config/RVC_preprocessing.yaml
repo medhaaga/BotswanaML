@@ -17,5 +17,4 @@ helper_cols:
   - range
   - firmware_major_version
   - est_dist_m_smooth
-  - resting_binary
-  - moving_binary
+  - behavior
