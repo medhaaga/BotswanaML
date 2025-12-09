@@ -24,9 +24,11 @@ def compute_combined_quantiles(datasets,
     sampled_datasets = [subsample(X, n_sample_per_target) for X in datasets]
     X_comb = np.vstack(sampled_datasets)
 
-    if pos_idx:
+    dim = datasets[0].shape[1]
+
+    if pos_idx and all(0 <= x < dim for x in pos_idx):
         X_comb[:, pos_idx] = np.log1p(X_comb[:, pos_idx])
-    if center_idx:
+    if center_idx and all(0 <= x < dim for x in center_idx):
         X_comb[:, center_idx] = signed_log(X_comb[:, center_idx])
 
     Xq = X_comb.copy()
