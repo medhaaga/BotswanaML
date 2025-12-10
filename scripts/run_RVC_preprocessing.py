@@ -12,23 +12,10 @@ import src.utils.io as io
 
 def load_RVC_data(data_path):
 
-    # Case 1: data_path is a directory containing several csv files
-    if os.path.isdir(data_path):
-        files = [file for file in os.listdir(data_path) if file.endswith('.csv')]
-        dfs = []
-        for file in files:
-            df_temp = pd.read_csv(os.path.join(data_path, file))
-            df_temp['animal_id'] = file.split('_')[0]
-            df_temp = df_temp.sort_values(by='UTC.time..yyyy.mm.dd.HH.MM.SS.')
-            dfs.append(df_temp)
-
-        df = pd.concat(dfs)
-
-    # Case 2: data_path is a single CSV file
-    elif os.path.isfile(data_path) and data_path.endswith('.csv'):
+    if os.path.isfile(data_path) and data_path.endswith('.csv'):
         df = pd.read_csv(data_path)
-        file = os.path.basename(data_path)
-        df['animal_id'] = df['id']
+        df['animal_id'] = df['id'].str.capitalize()
+        df["animal_id"] = df["animal_id"].apply(lambda x: x.upper() if x == 'Mj' else x)
 
     else:
         raise ValueError("The provided path is neither a folder nor a CSV file.")
@@ -78,25 +65,7 @@ def preprocess_RVC_data(data_path, save_preprocessed_data=True):
         summary_dir=io.get_results_dir()
     )
 
-    # add weak labels
-    df_labeled = pd.read_csv(config.HISTORIC_ACC_ANNOTATED_COMBINED)
-    df_labeled = df_labeled.rename(columns={
-                                            'UTC.time..yyyy.mm.dd.HH.MM.SS.': 'UTC time [yyyy-mm-dd HH:MM:SS]',
-                                            'id': 'animal_id'
-                                        })
-    df_labeled['UTC time [yyyy-mm-dd HH:MM:SS]'] = pd.to_datetime(df_labeled['UTC time [yyyy-mm-dd HH:MM:SS]'])
-    
-    # the animal IDs need to be capitalized to match
-    df_preprocessed['animal_id'] = df_preprocessed['animal_id'].str.capitalize()
-    df_labeled['animal_id'] = df_labeled['animal_id'].str.capitalize()
-
-    df_preprocessed = df_preprocessed.drop(columns=['moving_binary', 'resting_binary'], errors='ignore')
-    df_preprocessed = df_preprocessed.merge(
-                                            df_labeled[['UTC time [yyyy-mm-dd HH:MM:SS]', 'animal_id', 'feeding_binary', 'moving_binary', 'resting_binary']],
-                                            on=['UTC time [yyyy-mm-dd HH:MM:SS]', 'animal_id'],
-                                            how='left' 
-                                            )
-
+    # Create behavior column
     df_preprocessed['behavior'] = np.select(
         [
             df_preprocessed['feeding_binary'] == 1,
@@ -119,4 +88,4 @@ def preprocess_RVC_data(data_path, save_preprocessed_data=True):
 
 if __name__ == '__main__':
 
-    _ = preprocess_RVC_data(data_path=config.HISTORIC_ACC_ANNOTATED, save_preprocessed_data=True)
+    _ = preprocess_RVC_data(data_path=config.HISTORIC_ACC_ANNOTATED_COMBINED, save_preprocessed_data=True)

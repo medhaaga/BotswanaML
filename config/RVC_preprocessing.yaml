@@ -16,5 +16,4 @@ helper_cols:
   - collar_number
   - range
   - firmware_major_version
-  - est_dist_m_smooth
   - behavior
