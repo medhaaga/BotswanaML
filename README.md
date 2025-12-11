@@ -58,6 +58,10 @@ Examples:
 pip install torch torchvision torchaudio
 ```
 
+```
+conda install -y pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+```
+
 **CUDA 12.4**
 
 ```bash

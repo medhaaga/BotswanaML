@@ -327,3 +327,22 @@ def plot_feature_histograms(X_src, X_targets, bins=50, fname="feature_hists.png"
     plt.close()
     print(f"Saved histogram plot to {fname}")
 
+def make_multilabel_confusion_matrices(y_true, y_pred, label_encoder):
+
+    n_classes = y_true.shape[1]
+    fig, axes = plt.subplots(nrows=1, ncols=n_classes, figsize=(5 * n_classes, 5))
+
+    for i in range(n_classes):
+        cm = confusion_matrix(y_true[:, i], y_pred[:, i], labels=[0, 1])
+        # Row-wise normalization with division safety
+        row_sums = cm.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1   # prevent division-by-zero
+        cm_norm = cm / row_sums
+
+                
+        sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap="Blues",
+                    xticklabels=['No', 'Yes'], yticklabels=['No', 'Yes'],
+                    cbar=False, square=True, annot_kws={"size": 25}, ax=axes[i])
+        axes[i].set_title(label_encoder.classes_[i])
+        axes[i].set_xlabel("Predicted")
+        axes[i].set_ylabel("True")
