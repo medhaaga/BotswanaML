@@ -176,6 +176,7 @@ def fixmatch_training_epoch(model, optimizer, criterion, train_dataloader, devic
         # =====================================
         # (2) Supervised loss - Target (partial)
         # =====================================
+        loss_tgt_lab = torch.tensor([0.0]).to(device)
         if args.lambda_target > 0:
             out_tgt_l = model(tgt_x_l)
             out_tgt_l = out_tgt_l[1] if isinstance(out_tgt_l, tuple) else out_tgt_l
@@ -186,6 +187,7 @@ def fixmatch_training_epoch(model, optimizer, criterion, train_dataloader, devic
         # ===========================================
         # weakly and strongly augmented views
 
+        loss_unsup = torch.tensor([0.0]).to(device)
         if args.lambda_unsup > 0:
             weak_x = weak_augment(tgt_x_u)
             strong_x = strong_augment(tgt_x_u)

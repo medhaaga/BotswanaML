@@ -1,6 +1,5 @@
 import yaml
 import pandas as pd
-import os
 import sys
 import numpy as np
 import warnings
@@ -8,9 +7,8 @@ from tqdm import tqdm
 sys.path.append('.')
 sys.path.append('../')
 sys.path.append('../../')
+
 import src.utils.io as io
-
-
 from src.utils.Vectronics_preprocessing import (create_max_windows,
                                                 create_summary_data,
                                                 load_annotations,
@@ -18,7 +16,6 @@ from src.utils.Vectronics_preprocessing import (create_max_windows,
 import config as config
 from src.utils.data_prep import create_matched_data
 
-import pandas as pd
 
 def smooth_behavior_segments(
     df,
