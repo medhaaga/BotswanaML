@@ -176,31 +176,34 @@ def fixmatch_training_epoch(model, optimizer, criterion, train_dataloader, devic
         # =====================================
         # (2) Supervised loss - Target (partial)
         # =====================================
-        out_tgt_l = model(tgt_x_l)
-        out_tgt_l = out_tgt_l[1] if isinstance(out_tgt_l, tuple) else out_tgt_l
-        loss_tgt_lab = criterion(out_tgt_l, tgt_y_l)
+        if args.lambda_target > 0:
+            out_tgt_l = model(tgt_x_l)
+            out_tgt_l = out_tgt_l[1] if isinstance(out_tgt_l, tuple) else out_tgt_l
+            loss_tgt_lab = criterion(out_tgt_l, tgt_y_l)
 
         # ===========================================
         # (3) Unsupervised FixMatch loss (target unlabeled)
         # ===========================================
         # weakly and strongly augmented views
-        weak_x = weak_augment(tgt_x_u)
-        strong_x = strong_augment(tgt_x_u)
 
-        # forward weakly augmented
-        with torch.no_grad():
-            logits_weak = model(weak_x)
-            logits_weak = logits_weak[1] if isinstance(logits_weak, tuple) else logits_weak
-            probs_weak = torch.sigmoid(logits_weak)
+        if args.lambda_unsup > 0:
+            weak_x = weak_augment(tgt_x_u)
+            strong_x = strong_augment(tgt_x_u)
 
-            # confidence mask for multi-label
-            mask = (probs_weak > args.fixmatch_threshold).float()
-            pseudo_labels = (probs_weak > 0.5).float()
+            # forward weakly augmented
+            with torch.no_grad():
+                logits_weak = model(weak_x)
+                logits_weak = logits_weak[1] if isinstance(logits_weak, tuple) else logits_weak
+                probs_weak = torch.sigmoid(logits_weak)
 
-        # forward strongly augmented
-        logits_strong = model(strong_x)
-        logits_strong = logits_strong[1] if isinstance(logits_strong, tuple) else logits_strong
-        loss_unsup = (F.binary_cross_entropy_with_logits(logits_strong, pseudo_labels, reduction='none') * mask).mean()
+                # confidence mask for multi-label
+                mask = (probs_weak > args.fixmatch_threshold).float()
+                pseudo_labels = (probs_weak > 0.5).float()
+
+            # forward strongly augmented
+            logits_strong = model(strong_x)
+            logits_strong = logits_strong[1] if isinstance(logits_strong, tuple) else logits_strong
+            loss_unsup = (F.binary_cross_entropy_with_logits(logits_strong, pseudo_labels, reduction='none') * mask).mean()
 
         # =======================================
         # Combine all losses with weighting
