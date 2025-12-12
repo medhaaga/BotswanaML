@@ -17,94 +17,9 @@ import config as config
 from src.utils.data_prep import create_matched_data
 
 
-def smooth_behavior_segments(
-    df,
-    dur_threshold=5,     # short segment threshold
-    gap_threshold=5,     # allowed gap for smoothing
-    gap_auto_merge=5     # auto-merge same behavior if gap < 2 sec
-):
-    # Sort
-    df = df.sort_values(["id", "Timestamp_start"]).reset_index(drop=True)
-
-    results = []
-
-    for pid, group in df.groupby("id"):
-        segs = group.reset_index(drop=True)
-
-        i = 0
-        while i < len(segs):
-
-            row = segs.loc[i]
-
-            # -------------------------------
-            # RULE 1: AUTO MERGE SAME-BEHAVIOR NEIGHBORS
-            # -------------------------------
-            if i > 0:
-                prev = results[-1]
-                gap_prev = (row.Timestamp_start - prev.Timestamp_end).total_seconds()
-
-                if (
-                    prev.Behavior == row.Behavior
-                    and gap_prev <= gap_auto_merge
-                ):
-                    # merge row into prev
-                    prev.Timestamp_end = row.Timestamp_end
-                    prev.duration = (
-                        prev.Timestamp_end - prev.Timestamp_start
-                    ).total_seconds()
-                    results[-1] = prev
-                    i += 1
-                    continue
-
-            # -------------------------------
-            # RULE 2: SHORT-SEGMENT SMOOTHING
-            # -------------------------------
-            if row.duration < dur_threshold:
-                prev_ok = len(results) > 0
-                next_ok = i < len(segs) - 1
-
-                if prev_ok:
-                    prev = results[-1]
-                    gap1 = (row.Timestamp_start - prev.Timestamp_end).total_seconds()
-
-                if next_ok:
-                    nxt = segs.loc[i + 1]
-                    gap2 = (nxt.Timestamp_start - row.Timestamp_end).total_seconds()
-
-                merged = False
-
-                # Case A: short surrounded by same behavior + small gaps
-                if prev_ok and next_ok:
-                    if (
-                        prev.Behavior == nxt.Behavior
-                        and row.duration < dur_threshold
-                        and gap1 <= gap_threshold
-                        and gap2 <= gap_threshold
-                    ):
-                        # merge prev, row, next
-                        prev.Timestamp_end = nxt.Timestamp_end
-                        prev.duration = (
-                            prev.Timestamp_end - prev.Timestamp_start
-                        ).total_seconds()
-                        results[-1] = prev
-                        # skip next segment
-                        i += 2
-                        continue
-
-            # If none of the special rules apply → keep row
-            results.append(row)
-            i += 1
-
-    # Return cleaned results
-    out = pd.DataFrame(results)
-    return out
-
 def preprocess_labeled_Vectronics_data(save_preprocessed_data=True, window_duration=30.0, min_window_for_padding=30.0):
 
-    # acc_data, _ = load_Vectronics_data_metadata()
-
     all_annotations = load_annotations()
-    # all_annotations = smooth_behavior_segments(all_annotations)
     metadata = pd.read_csv(io.get_metadata_path())
 
 
