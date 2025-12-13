@@ -33,14 +33,11 @@ def preprocess_labeled_Vectronics_data(save_preprocessed_data=True, window_durat
 
     print(f"Creating windows of durations {window_duration}...")
     acc_data_split = create_max_windows(acc_data=acc_data, window_duration=window_duration, sampling_rate=config.SAMPLING_RATE)
-
-    # extract instances >= window duration
     acc_data_split = acc_data_split[acc_data_split.duration >= window_duration]
 
     print(f"Creating summary statistics...")
     df_preprocessed = create_summary_data(acc_data_split, sampling_rate=config.SAMPLING_RATE)
     df_preprocessed = df_preprocessed.drop(columns=['duration'])
-
 
     print(f"Saving preprocessed data to {io.get_Vectronics_preprocessed_path(window_duration)}")
     if save_preprocessed_data:

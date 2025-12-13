@@ -273,13 +273,13 @@ def calibrate_RVC_data(df, metadata_df):
             df.loc[mask, 'range'] = range_value
             df.loc[mask, 'firmware_major_version'] = firmware_major_version
 
-            df.loc[mask, 'acc_x_ptp_max'] = df.loc[mask, 'acc_x_ptp_max'].astype(float) / sensitivity_X
-            df.loc[mask, 'acc_y_ptp_max'] = df.loc[mask, 'acc_y_ptp_max'].astype(float) / sensitivity_Y
-            df.loc[mask, 'acc_z_ptp_max'] = df.loc[mask, 'acc_z_ptp_max'].astype(float) / sensitivity_Z
+            df.loc[mask, 'acc_x_ptp_max'] = df.loc[mask, 'acc_x_ptp_max'] / sensitivity_X
+            df.loc[mask, 'acc_y_ptp_max'] = df.loc[mask, 'acc_y_ptp_max'] / sensitivity_Y
+            df.loc[mask, 'acc_z_ptp_max'] = df.loc[mask, 'acc_z_ptp_max'] / sensitivity_Z
 
-            df.loc[mask, 'acc_x_ptp_mean'] = df.loc[mask, 'acc_x_ptp_mean'].astype(float) / sensitivity_X
-            df.loc[mask, 'acc_y_ptp_mean'] = df.loc[mask, 'acc_y_ptp_mean'].astype(float) / sensitivity_Y
-            df.loc[mask, 'acc_z_ptp_mean'] = df.loc[mask, 'acc_z_ptp_mean'].astype(float) / sensitivity_Z
+            df.loc[mask, 'acc_x_ptp_mean'] = df.loc[mask, 'acc_x_ptp_mean'] / sensitivity_X
+            df.loc[mask, 'acc_y_ptp_mean'] = df.loc[mask, 'acc_y_ptp_mean'] / sensitivity_Y
+            df.loc[mask, 'acc_z_ptp_mean'] = df.loc[mask, 'acc_z_ptp_mean'] / sensitivity_Z
 
             df.loc[mask, 'acc_x_mean'] = df.loc[mask, 'acc_x_mean'].apply(lambda x: (x - offset_X) / sensitivity_X)
             df.loc[mask, 'acc_y_mean'] = df.loc[mask, 'acc_y_mean'].apply(lambda x: (x - offset_Y) / sensitivity_Y)

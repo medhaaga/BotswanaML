@@ -12,23 +12,18 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Removed {before_shape[0] - after_shape[0]} duplicates.")
     return df
 
-def preprocess_data(df, metadata_df, summary_dir=None):
+def preprocess_data(df, metadata_df):
+    
     # Remove duplicates
     df = remove_duplicates(df)
 
     # Calibration
     print("Calibrating the RVC data...")
     df = calibrate_RVC_data(df, metadata_df)
-    if summary_dir is not None:
-        grouped_df = return_grouped_summary(df, metadata_df)
-        grouped_df.to_csv(f"{summary_dir}/RVC_data_summary.csv", index=False)
 
     # Thresholding
     print("Thresholding the RVC data...")
     df = threshold_RVC(df)
-    if summary_dir is not None:
-        grouped_df = return_grouped_summary(df, metadata_df)
-        grouped_df.to_csv(f"{summary_dir}/truncated_RVC_data_summary.csv", index=False)
     df['UTC date [yyyy-mm-dd]'] = pd.to_datetime(df['UTC date [yyyy-mm-dd]'])
     df = df[df['UTC date [yyyy-mm-dd]'].dt.year >= 2000]
 
