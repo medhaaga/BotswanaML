@@ -19,30 +19,37 @@ from src.utils.Vectronics_preprocessing import modify_vectronics_labels
 import config as config
 from sklearn.preprocessing import LabelEncoder
 from src.eval.eval_utils import evaluate_label_distribution
-from src.eval.plot_utils import make_sightings_plots_from_model
 
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    
+
+    # ---------------- Experimental setup ----------------
+    parser.add_argument("--exp_name", type=str, default="DEFAULT", help="Base name of experiment")
+
     # ---------------- Feature setup ----------------
     parser.add_argument("--pos_idx", nargs="+", type=int, default=[0,1,2,3,4,5],
                         help="Indices of positive-only features")
-    parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
+    parser.add_argument("--center_idx", nargs="+", type=int, default=None,
                         help="Indices of zero-centered features")
-    parser.add_argument("--remove_outliers", type=int, default=1,
-                        help="whether to remove target samples outside the source domain")
-
+    parser.add_argument("--source_padding_duration", type=float, default=None,
+                        help="Padding duration used in creation of preprocessed source data")
+    
     # ---------------- Preprocessing ----------------
+    parser.add_argument("--keep_confidence_levels", nargs="*", type=str, default=None,
+                        help="list of str of confidence levels from ['H', 'M', 'H/M']")
+    parser.add_argument("--eating_to_other", nargs="*", type=str, default=None,
+                        help="list of str of eating intensities to convert to Other behavior. Values in ['H', 'M', 'L']")
+    parser.add_argument("--eating_to_exclude", nargs="*", type=str, default=None,
+                        help="list of str of eating intensities to exclude form data. Values in ['H', 'M', 'L']")
     parser.add_argument("--n_sample_per_target", type=int, default=200000,
                         help="Number of samples to draw from each target for computing mean/std")
 
     # ---------------- Model ----------------
     parser.add_argument("--feat_dim", type=int, default=128,
                         help="Dimension of feature extractor's hidden layer")
-    parser.add_argument("--model_name", type=str, default='A', help="Model name for saving results")
 
     # ---------------- Training ----------------
     parser.add_argument("--theta", type=float, default=0.3)
@@ -62,14 +69,18 @@ def parse_arguments():
 
 
 def main():
-    # --------------------------
-    # Parse arguments
-    # --------------------------
+    # -----------------------------------------------
+    # Parse arguments, create dir, set seeds
+    # -----------------------------------------------
     parser = parse_arguments()
     args = parser.parse_args()
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "pure_coral")
+    root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "coral")
+    root_dir = io.get_exp_dir(output_root=root_dir, exp_name=args.exp_name)
     os.makedirs(root_dir, exist_ok=True)
+    with open(os.path.join(root_dir, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=4, sort_keys=True)
+
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -83,9 +94,11 @@ def main():
         Vectronics_preprocessing_config = yaml.safe_load(f)
     Vectronics_feature_cols = Vectronics_preprocessing_config['feature_cols']
 
-    min_duration_before_padding = None
-    vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(min_duration_before_padding))
-    vectronics_df = modify_vectronics_labels(vectronics_df, model_name=args.model_name)
+    vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(args.source_padding_duration))
+    vectronics_df = modify_vectronics_labels(vectronics_df, 
+                                             keep_confidence_levels=args.keep_confidence_levels,
+                                             eating_to_other=args.eating_to_other,
+                                             eating_to_exclude=args.eating_to_exclude)
     
     X_src = vectronics_df[Vectronics_feature_cols].values
     y_src = vectronics_df['behavior'].values
@@ -103,15 +116,14 @@ def main():
     X_targets = [RVC_df.loc[RVC_df.firmware_major_version == 2.0],
                 RVC_df.loc[RVC_df.firmware_major_version == 3.0]]
     
-    if args.remove_outliers:
-        left_limit = np.quantile(X_src, 0.0, axis=0)
-        right_limit = np.quantile(X_src, 1.0, axis=0)
-        right_limit = np.where(right_limit == left_limit, left_limit + 1e-6, right_limit)
-    
-        for i, Xt in enumerate(X_targets):
-            Xt = Xt[Vectronics_feature_cols].values
-            mask = (Xt >= left_limit).all(axis=1) & (Xt <= right_limit).all(axis=1) & (Xt > 0.0).all(axis=1)
-            X_targets[i] = X_targets[i][mask].reset_index(drop=True)
+    left_limit = np.quantile(X_src, 0.0, axis=0)
+    right_limit = np.quantile(X_src, 1.0, axis=0)
+    right_limit = np.where(right_limit == left_limit, left_limit + 1e-6, right_limit)
+
+    for i, Xt in enumerate(X_targets):
+        Xt = Xt[Vectronics_feature_cols].values
+        mask = (Xt >= left_limit).all(axis=1) & (Xt <= right_limit).all(axis=1) & (Xt > 0.0).all(axis=1)
+        X_targets[i] = X_targets[i][mask].reset_index(drop=True)
 
     # --------------------------
     # create datasets and dataloaders 
@@ -182,7 +194,7 @@ def main():
         ###### Save objects
         ##############################################
 
-        dir = os.path.join(root_dir, args.model_name, f'target{i+1}')
+        dir = os.path.join(root_dir, f'target{i+1}')
         os.makedirs(dir, exist_ok=True)
         print(dir)
 
@@ -219,21 +231,6 @@ def main():
                                             device=device, 
                                             verbose=True)
         
-        # plot sightings
-        matched_sightings = pd.read_csv(io.get_sightings_path())
-        matched_gps = pd.read_csv(io.get_matched_gps_path())
-        matched_gps_moving = pd.read_csv(io.get_gps_moving_path())
-
-        plot_dir = os.path.join(io.get_sightings_dir(), 'pure_coral', args.model_name, 'uncalibrated')
-        os.makedirs(plot_dir, exist_ok=True)
-        make_sightings_plots_from_model(model=model, 
-                                   data=transform(torch.tensor(X_targets[i][Vectronics_feature_cols].values, dtype=torch.float32)),
-                                   metadata=X_targets[i],
-                                   matched_sightings=matched_sightings, 
-                                   matched_gps=matched_gps,
-                                   matched_gps_moving=matched_gps_moving, 
-                                   device=device,
-                                   plot_dir=plot_dir)
 
 if __name__ == "__main__":
     main()

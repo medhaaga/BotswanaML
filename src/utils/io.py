@@ -24,24 +24,24 @@ def get_data_path():
     os.makedirs(data_path, exist_ok=True)
     return data_path
 
-def get_matched_data_path():
-    path = os.path.join(get_data_path(), 'matched_acc_data.csv')
+def get_vectronics_data_path():
+    path = os.path.join(get_data_path(), 'vectronics_acc_data.csv')
     return path
 
-def get_matched_metadata_path():
-    path = os.path.join(get_data_path(), 'matched_acc_metadata.csv')
+def get_vectronics_acc_metadata_path():
+    path = os.path.join(get_data_path(), 'vectronics_acc_metadata.csv')
     return path
 
-def get_matched_annotations_summary_path():
-    path = os.path.join(get_data_path(), 'matched_annotations_summary.csv')
+def get_vectronics_annotations_summary_path():
+    path = os.path.join(get_data_path(), 'vectronics_annotations_summary.csv')
     return path     
 
-def get_matched_summary_path():
-    path = os.path.join(get_data_path(), 'matched_acc_summary.csv')
+def get_vectronics_summary_path():
+    path = os.path.join(get_data_path(), 'vectronics_acc_summary.csv')
     return path
 
-def get_metadata_path():
-    path = os.path.join(get_data_path(), 'metadata.csv')
+def get_vectronics_metadata_path():
+    path = os.path.join(get_data_path(), 'vectronics_metadata.csv')
     return path
 
 def get_RVC_metadata_path():
@@ -52,11 +52,11 @@ def get_RVC_preprocessed_path():
     path = os.path.join(get_data_path(), 'RVC_preprocessed.csv')
     return path
 
-def get_Vectronics_preprocessed_path(duration=None):
-    if duration is not None:
-        path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration{duration}.csv')
+def get_Vectronics_preprocessed_path(padding_duration=None):
+    if padding_duration is not None:
+        path = os.path.join(get_data_path(), f'Vectronics_preprocessed_padding_{padding_duration}.csv')
     else:
-        path = os.path.join(get_data_path(), f'Vectronics_preprocessed_duration.csv')
+        path = os.path.join(get_data_path(), f'Vectronics_preprocessed.csv')
 
     return path
 
@@ -203,11 +203,17 @@ def load_config(config_name, config_type):
     path = os.path.join('configs', config_type, f"{config_name}.yml")
     with open(path, 'r') as f:
         return yaml.safe_load(f)
+    
+def get_exp_dir(output_root: str, exp_name: str):
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    exp_dir = os.path.join(output_root, f"{exp_name}_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=False)
+    return exp_dir
 
 def save_results(results, model, configs, run_name=None):
     """Saves training results, model, and configs."""
     if run_name is None:
-        run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        run_name = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     results_dir = os.path.join('results', run_name)
     os.makedirs(results_dir, exist_ok=True)

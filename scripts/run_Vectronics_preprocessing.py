@@ -20,7 +20,7 @@ from src.utils.data_prep import create_matched_data
 def preprocess_labeled_Vectronics_data(save_preprocessed_data=True, window_duration=30.0, min_window_for_padding=30.0):
 
     all_annotations = load_annotations()
-    metadata = pd.read_csv(io.get_metadata_path())
+    metadata = pd.read_csv(io.get_vectronics_metadata_path())
 
 
     _, acc_data, _, _ = create_matched_data(filtered_metadata=metadata, 
@@ -39,9 +39,14 @@ def preprocess_labeled_Vectronics_data(save_preprocessed_data=True, window_durat
     df_preprocessed = create_summary_data(acc_data_split, sampling_rate=config.SAMPLING_RATE)
     df_preprocessed = df_preprocessed.drop(columns=['duration'])
 
-    print(f"Saving preprocessed data to {io.get_Vectronics_preprocessed_path(window_duration)}")
+    if min_window_for_padding is not None:
+        padding_duration = window_duration - min_window_for_padding
+    else:
+        padding_duration = None
+        
+    print(f"Saving preprocessed data to {io.get_Vectronics_preprocessed_path(padding_duration)}")
     if save_preprocessed_data:
-        df_preprocessed.to_csv(io.get_Vectronics_preprocessed_path(window_duration), index=False)
+        df_preprocessed.to_csv(io.get_Vectronics_preprocessed_path(padding_duration), index=False)
 
     return df_preprocessed
 
@@ -66,7 +71,6 @@ def create_all_vectronics_summary_data(metadata: pd.DataFrame,
     group_keys = list(grouped.groups.keys())   # list of (individual, date) tuples
     np.random.shuffle(group_keys)    
     results = []
-    i = 0
 
     for individual, date in tqdm(group_keys, total=len(group_keys)):
         print(f"Processing individual={individual}, date={date}")
@@ -92,10 +96,6 @@ def create_all_vectronics_summary_data(metadata: pd.DataFrame,
         features['UTC date [yyyy-mm-dd]'] = date
         results.append(features) 
 
-        i+=1
-        if i == 20:
-            break
-
     df = pd.concat(results, ignore_index=True)
     if save_data:
         print(f"Saving preprocessed data to {io.get_Vectronics_full_summary_path()}")
@@ -111,14 +111,14 @@ if __name__ == '__main__':
         Vectronics_preprocessing_config = yaml.safe_load(f)
 
     window_duration = Vectronics_preprocessing_config['window_duration']
-    window_duration = 30.0
+    min_window_for_padding = None
 
     _ = preprocess_labeled_Vectronics_data(save_preprocessed_data=True, 
                                            window_duration=window_duration, 
-                                           min_window_for_padding=None)
+                                           min_window_for_padding=min_window_for_padding)
 
-    # metadata = pd.read_csv(io.get_metadata_path())
-    # _ = create_all_vectronics_summary_data(metadata=metadata, 
-    #                                    sampling_frequency=config.SAMPLING_RATE, 
-    #                                    window_duration = 30.0,
-    #                                    save_data=True)
+    metadata = pd.read_csv(io.get_vectronics_metadata_path())
+    _ = create_all_vectronics_summary_data(metadata=metadata, 
+                                       sampling_frequency=config.SAMPLING_RATE, 
+                                       window_duration = 30.0,
+                                       save_data=True)

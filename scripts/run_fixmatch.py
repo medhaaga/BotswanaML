@@ -26,13 +26,24 @@ from torch.utils.data import DataLoader
 def parse_arguments():
     parser = argparse.ArgumentParser()
     
+    # ---------------- Experimental setup ----------------
+    parser.add_argument("--exp_name", type=str, default="DEFAULT", help="Base name of experiment")
+
     # ---------------- Feature setup ----------------
     parser.add_argument("--pos_idx", nargs="+", type=int, default=[0,1,2,3,4,5],
                         help="Indices of positive-only features")
-    parser.add_argument("--center_idx", nargs="*", type=int, default=[6,7,8],
+    parser.add_argument("--center_idx", nargs="+", type=int, default=None,
                         help="Indices of zero-centered features")
+    parser.add_argument("--source_padding_duration", type=float, default=None,
+                        help="Padding duration used in creation of preprocessed source data")
 
     # ---------------- Preprocessing ----------------
+    parser.add_argument("--keep_confidence_levels", nargs="*", type=str, default=None,
+                        help="list of str of confidence levels from ['H', 'M', 'H/M']")
+    parser.add_argument("--eating_to_other", nargs="*", type=str, default=None,
+                        help="list of str of eating intensities to convert to Other behavior. Values in ['H', 'M', 'L']")
+    parser.add_argument("--eating_to_exclude", nargs="*", type=str, default=None,
+                        help="list of str of eating intensities to exclude form data. Values in ['H', 'M', 'L']")
     parser.add_argument("--n_sample_per_target", type=int, default=200000,
                         help="Number of samples to draw from each target for computing mean/std")
 
@@ -40,19 +51,21 @@ def parse_arguments():
     parser.add_argument("--feat_dim", type=int, default=128,
                         help="Dimension of feature extractor's hidden layer")
     parser.add_argument("--fixmatch_threshold", type=float, default=0.95,
-                        help="Threshold for classifying as strong label")    
+                        help="Threshold for classifying as strong label")   
+    parser.add_argument("--lambda_target", type=float, default=1.0,
+                        help="Weight for labeled target loss")
+    parser.add_argument("--lambda_unsup", type=float, default=0.0,
+                        help="Weight for unlabaled target loss") 
 
     # ---------------- Training ----------------
     parser.add_argument("--theta", type=float, default=0.3)
-    parser.add_argument("--num_epochs", type=int, default=100, help="Number of training epochs")
+    parser.add_argument("--num_epochs", type=int, default=200, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay (L2 regularization)")
     parser.add_argument("--source_test_frac", type=float, default=0.2, help="Fraction of train set to reserve for validation")
-    parser.add_argument("--lambda_target", type=float, default=1.0,
-                        help="Weight for labeled target loss")
-    parser.add_argument("--lambda_unsup", type=float, default=0.0,
-                        help="Weight for unlabaled target loss")
+    parser.add_argument("--target_val_frac", type=float, default=0.25, help="Fraction of train set to reserve for validation")
+    parser.add_argument("--target_test_frac", type=float, default=0.25, help="Fraction of train set to reserve for validation")
 
     # ---------------- Output ----------------
     parser.add_argument("--device", type=int, default=0)
@@ -82,9 +95,12 @@ def main():
     if args.lambda_target == 0.0:
         root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "fixmatch_self_supervised")
     else:
-        root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "fixmatch_semi_supervised", f"lambda{args.lambda_target}")
-    
+        root_dir = os.path.join(io.get_domain_adaptation_results_dir(), "fixmatch_semi_supervised")
+    root_dir = io.get_exp_dir(output_root=root_dir, exp_name=args.exp_name)
     os.makedirs(root_dir, exist_ok=True)
+    with open(os.path.join(root_dir, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=4, sort_keys=True)
+
     np.random.seed(seed=args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -98,10 +114,12 @@ def main():
         Vectronics_preprocessing_config = yaml.safe_load(f)
     Vectronics_feature_cols = Vectronics_preprocessing_config['feature_cols']
 
-    window_duration = 30.0
     print("Loading lableded source data (Vectronics)...")
-    labeled_vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(window_duration))
-    labeled_vectronics_df = modify_vectronics_labels(labeled_vectronics_df)
+    labeled_vectronics_df = pd.read_csv(io.get_Vectronics_preprocessed_path(args.source_padding_duration))
+    labeled_vectronics_df = modify_vectronics_labels(labeled_vectronics_df, 
+                                             keep_confidence_levels=args.keep_confidence_levels,
+                                             eating_to_other=args.eating_to_other,
+                                             eating_to_exclude=args.eating_to_exclude)
 
     print("Loading target data (RVC)...")
     RVC_df = pd.read_csv(io.get_RVC_preprocessed_path())
@@ -178,9 +196,24 @@ def main():
         df = RVC_labeled_df.loc[(RVC_labeled_df.behavior == 'Feeding') & (RVC_labeled_df.firmware_major_version == sensor_version)].reset_index(drop=True)
         group_ids = list(df.groupby(['animal_id', 'UTC date [yyyy-mm-dd]']).groups.keys())
         n_feeding_days = len(group_ids)
-        train_feeding_days, val_feeding_days, test_feeding_days = group_ids[:int(0.5*n_feeding_days)], \
-                                                                    group_ids[int(0.5*n_feeding_days): int(0.75*n_feeding_days)], \
-                                                                    group_ids[int(0.75*n_feeding_days): ]
+
+        assert args.target_val_frac + args.target_test_frac < 1, "The fraction of val and test split of target data should add to values < 1"
+        target_train_frac = 1.0 - (args.target_val_frac + args.target_test_frac)
+
+        train_feeding_days, val_feeding_days, test_feeding_days = group_ids[:int(target_train_frac*n_feeding_days)], \
+                                                                    group_ids[int(target_train_frac*n_feeding_days): int((target_train_frac+args.target_val_frac)*n_feeding_days)], \
+                                                                    group_ids[int((target_train_frac+args.target_val_frac)*n_feeding_days): ]
+        
+        # save the (animal_id, date) apiirs for each target split
+        def tuples_to_df(tuples_list, split_name):
+            return pd.DataFrame(tuples_list, columns=['animal_id', 'UTC date [yyyy-mm-dd]']).assign(split=split_name)
+
+        train_df = tuples_to_df(train_feeding_days, "train")
+        val_df   = tuples_to_df(val_feeding_days, "val")
+        test_df  = tuples_to_df(test_feeding_days, "test")
+        target_splits_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+        target_splits_df.to_csv(os.path.join(root_dir, 'target_splits.csv'), index=False)
+
         train_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(train_feeding_days)
         val_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(val_feeding_days)
         test_mask = RVC_labeled_df[['animal_id', 'UTC date [yyyy-mm-dd]']].apply(tuple, axis=1).isin(test_feeding_days)

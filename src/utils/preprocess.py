@@ -60,7 +60,6 @@ class TransformAndScale:
 
     def __call__(self, X):
         lows = self.lows.to(X.device)
-        highs = self.highs.to(X.device)
         denom = self.denom.to(X.device)
 
         X = X.clone().float()
@@ -69,9 +68,12 @@ class TransformAndScale:
         if X.ndim == 1:
             X = X.unsqueeze(0)
 
+
         if self.pos_idx:
+            for c in self.pos_idx: assert 0 <= c < X.shape[-1], "pos_idx out of bounds"
             X[:, self.pos_idx] = torch.log1p(X[:, self.pos_idx])
         if self.center_idx:
+            for c in self.center_idx: assert 0 <= c < X.shape[-1], "pos_idx out of bounds"
             X[:, self.center_idx] = self.signed_log(X[:, self.center_idx])
 
         X_scaled = -1.0 + 2.0 * (X - lows) / denom

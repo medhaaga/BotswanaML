@@ -12,8 +12,8 @@ from src.utils.data_prep import (combined_annotations,
 
 from src.utils.io import (get_video_labels_path,
                           get_audio_labels_path,
-                          get_matched_data_path,
-                          get_matched_metadata_path,
+                          get_vectronics_data_path,
+                          get_vectronics_acc_metadata_path,
                           )
 
 def load_annotations():
@@ -35,8 +35,8 @@ def load_annotations():
 
 def load_Vectronics_data_metadata():
 
-    acc_data = pd.read_csv(get_matched_data_path())
-    acc_metadata = pd.read_csv(get_matched_metadata_path())
+    acc_data = pd.read_csv(get_vectronics_data_path())
+    acc_metadata = pd.read_csv(get_vectronics_acc_metadata_path())
 
     # convert acceleration strings to arrays
     acc_data['acc_x'] = acc_data['acc_x'].apply(json.loads)

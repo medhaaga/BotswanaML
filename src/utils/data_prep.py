@@ -20,13 +20,13 @@ import json
 from scipy.signal import butter, filtfilt
 import config as config
 from src.utils.io import (format_time,
-                          get_metadata_path,
+                          get_vectronics_metadata_path,
                           get_video_labels_path,
                           get_audio_labels_path,
-                          get_matched_data_path, 
-                          get_matched_metadata_path,
-                          get_matched_summary_path,
-                          get_matched_annotations_summary_path
+                          get_vectronics_data_path, 
+                          get_vectronics_acc_metadata_path,
+                          get_vectronics_summary_path,
+                          get_vectronics_annotations_summary_path
 )
 import src.utils.datasets as datasets
             
@@ -1014,7 +1014,7 @@ def setup_data_objects(metadata, all_annotations, collapse_behavior_mapping,
 
 if __name__ == '__main__':
      
-    metadata = pd.read_csv(get_metadata_path()) # load metadata
+    metadata = pd.read_csv(get_vectronics_metadata_path()) # load metadata
      
     all_annotations = combined_annotations(video_path=get_video_labels_path(), 
                                             audio_path=get_audio_labels_path(),
@@ -1028,10 +1028,10 @@ if __name__ == '__main__':
                                                                                         verbose=True, 
                                                                                         min_window_for_padding=None,
                                                                                         min_matched_duration=None)
-    acc_summary.to_csv(get_matched_summary_path(), index=False)
-    acc_data.to_csv(get_matched_data_path(), index=False)
-    acc_data_metadata.to_csv(get_matched_metadata_path(), index=False)
-    annotations_summary.to_csv(get_matched_annotations_summary_path(), index=False)
+    acc_summary.to_csv(get_vectronics_summary_path(), index=False)
+    acc_data.to_csv(get_vectronics_data_path(), index=False)
+    acc_data_metadata.to_csv(get_vectronics_acc_metadata_path(), index=False)
+    annotations_summary.to_csv(get_vectronics_annotations_summary_path(), index=False)
 
-    # create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
+    create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
     

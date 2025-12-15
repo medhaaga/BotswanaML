@@ -19,13 +19,6 @@ AWD_VECTRONICS_PATHS = {
                         'fossey': '/mnt/ssd/medhaaga/wildlife/Vectronics/2022_44907_Aqua_Fossey'
                         }
 
-# path to metadata and behavior annotations file. 
-# If two different sources of annotations exist, like audio and video, provide these paths here.
-VECTRONICS_METADATA_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/metadata.csv"
-VECTRONICS_VIDEO_ANNOTATIONS_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/annotations_combined.csv"
-VECTRONICS_AUDIO_ANNOTATIONS_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/silver_labels_annotations.csv"
-VECTRONICS_ANNOTATIONS_PATH = "/mnt/ssd/medhaaga/wildlife/Vectronics/all_annotations.csv"
-
 # RVC HEADER PATHS
 RVC_HEADER_FILES_PATH = '/home/medhaaga/BotswanaML/data/RVC_header_files/'
 RVC_METADATA_PATH = '/home/medhaaga/BotswanaML/data/RVC_metadata.xlsx'
