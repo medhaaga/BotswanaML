@@ -205,7 +205,7 @@ def load_config(config_name, config_type):
         return yaml.safe_load(f)
     
 def get_exp_dir(output_root: str, exp_name: str):
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     exp_dir = os.path.join(output_root, f"{exp_name}_{timestamp}")
     os.makedirs(exp_dir, exist_ok=False)
     return exp_dir

@@ -346,3 +346,6 @@ def make_multilabel_confusion_matrices(y_true, y_pred, label_encoder):
         axes[i].set_title(label_encoder.classes_[i])
         axes[i].set_xlabel("Predicted")
         axes[i].set_ylabel("True")
+
+    plt.tight_layout()
+    plt.show()
