@@ -70,6 +70,8 @@ def parse_arguments():
     # ---------------- Output ----------------
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--multilabel_threshold", type=float, default=0.5)
+    
 
     return parser
 
@@ -267,7 +269,7 @@ def main():
                                 device=device, 
                                 weak_augment=weak_augment, 
                                 strong_augment=strong_augment, 
-                                threshold=0.5
+                                threshold=args.multilabel_threshold
                             )
         model = results['model']
 
@@ -329,7 +331,7 @@ def main():
                                             data=transform(torch.tensor(eval_df[Vectronics_feature_cols].values, dtype=torch.float32)),
                                             label_encoder=label_encoder,
                                             device=device, 
-                                            threshold=0.5,
+                                            threshold=args.multilabel_threshold,
                                             verbose=True)
         
 if __name__ == "__main__":
