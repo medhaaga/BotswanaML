@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import StratifiedShuffleSplit
 from datetime import timedelta
 
-from src.utils.data_prep import (combined_annotations,
+from src.utils.vectronics_data_prep import (combined_annotations,
                                 adjust_behavior_and_durations,)
 
 from src.utils.io import (get_video_labels_path,

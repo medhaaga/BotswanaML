@@ -9,12 +9,12 @@ sys.path.append('../')
 sys.path.append('../../')
 
 import src.utils.io as io
-from src.utils.Vectronics_preprocessing import (create_max_windows,
+from src.utils.vectronics_preprocessing import (create_max_windows,
                                                 create_summary_data,
                                                 load_annotations,
                                                 create_windowed_features)
 import config as config
-from src.utils.data_prep import create_matched_data
+from src.utils.vectronics_data_prep import create_matched_data
 
 
 def preprocess_labeled_Vectronics_data(save_preprocessed_data=True, window_duration=30.0, min_window_for_padding=30.0):

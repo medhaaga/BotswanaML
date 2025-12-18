@@ -31,6 +31,211 @@ from src.utils.io import (format_time,
 import src.utils.datasets as datasets
             
 
+def process_chunk_vectronics(chunk, individual, file_dir, verbose=False):
+
+    '''Save each chunk of acceleration data in respective half day segments
+
+    Arguments
+    --------------
+    chunk: pd Dataframe
+    individual: individual ID
+    file_dir: path-like object = directory to save segments 
+
+    '''
+
+    # Expected columns - [UTC Date[mm/dd], UTC DateTime, Milliseconds, Acc X [g], Acc Y [g], Acc Z [g], Temperature [Celsius]]
+
+    ts = pd.to_datetime(
+    chunk['UTC Date[mm/dd/yyyy]'] + ' ' + chunk['UTC DateTime'],
+    format='%m/%d/%Y %H:%M:%S',
+    cache=True)
+
+    chunk['Timestamp'] = ts + pd.to_timedelta(chunk['Milliseconds'], unit='ms')
+    chunk['date'] = ts.dt.date.astype(str)
+    chunk['am_pm'] = ts.dt.hour.lt(12).map({True: 'am', False: 'pm'})
+    chunk['date_am_pm_id'] = chunk['date'] + '_' + chunk['am_pm']
+
+    unique_half_days = chunk['date_am_pm_id'].unique()
+    print(f"{'Half days in chunk:':<30} {(unique_half_days)}, chunk duration: {np.round(len(chunk)/(config.SAMPLING_RATE * 3600), 2)} hrs.")
+
+    for half_day, df in chunk.groupby('date_am_pm_id', sort=False):
+        
+        file_name = os.path.join(file_dir, '{}_{}.csv'.format(individual, half_day))
+
+        df.to_csv(
+            file_name,
+            mode='a',
+            header=not os.path.exists(file_name),
+            index=False
+        )
+
+        if verbose:
+            print(f'Wrote {len(df)} rows → {file_name}')
+
+
+def combine_acc_vectronics(individual, acc_filepaths, max_chunks=None, verbose=False):
+
+    '''break the yearly csv files for each individual into chunks
+
+    Arguments
+    --------------
+    individual: individual ID
+    acc_filepaths: list of path-like object for the CSV files for the individual. 
+                   The basename of files is the year data was collected in (example - [2022.csv, 2023.csv, 2024.csv])
+    max_chunks: stop reading a csv after these many chunks
+    
+    '''
+
+    # loop over csv files for each year for each individual
+
+    for path in acc_filepaths:
+
+        print(f"{'Handling the csv:':<30} {path}")
+
+        file_dir = os.path.join(os.path.dirname(path), 'combined_acc')
+        os.makedirs(file_dir, exist_ok=True)
+        # for filename in os.listdir(file_dir):
+        #     file_path = os.path.join(file_dir, filename)
+        #     if os.path.isfile(file_path):
+        #         os.remove(file_path)
+
+        chunk_size = 10**6  # Adjust the chunk size based on your available memory
+
+        # ---- compute total number of chunks for tqdm ----
+        with open(path, "r") as f:
+            n_rows = sum(1 for _ in f) - 1  # subtract header
+
+        total_chunks = (n_rows + chunk_size - 1) // chunk_size
+        if max_chunks is not None:
+            total_chunks = min(total_chunks, max_chunks)
+
+        num_chunks = 0
+        year = os.path.basename(path).split('.')[0]
+
+        reader = pd.read_csv(
+            path,
+            chunksize=chunk_size,
+            skiprows=1  # only if file has no header
+        )
+
+        for chunk in tqdm(
+            reader,
+            total=total_chunks,
+            desc=f"Reading {year}",
+            unit="chunk"
+        ):
+
+            num_chunks += 1
+            year = os.path.basename(path).split('.')[0]
+            chunk['UTC Date[mm/dd/yyyy]'] = chunk['UTC Date[mm/dd]'] + '/' + year
+            process_chunk_vectronics(chunk, individual, file_dir, verbose=verbose)
+            del chunk
+
+            if max_chunks is not None and num_chunks == max_chunks:
+                break
+
+        time.sleep(10)
+
+
+def create_vectronics_halfday_segments(path_mappings, max_chunks=None, verbose=False):
+    
+    """
+    create segments by reading accelerometer data in chunks. Saves the segments in a 
+    directory titled "combined_acc" inside the data directory of each individual.
+    
+    Parameters:
+    - path_mappings (dict): A dictionary where keys are individual names (str) and values are file paths (str) to their data directories.
+    - max_chunks (int, optional): The maximum number of chunks to process per individual. Default is 0 (no limit).
+    
+    """
+    
+    individual_outputs = pd.DataFrame({'location': list(path_mappings.values()),
+                            'id': list(path_mappings.keys())})
+
+    individuals = individual_outputs['id'].values
+
+    individual_acc_filepaths = [[os.path.join(individual_outputs.iloc[i]['location'], file) for file in os.listdir(individual_outputs.iloc[i]['location']) if file.endswith('csv')] for i in range(len(individual_outputs))]
+        
+    # Sample data for the loop
+    data = zip(individuals, individual_acc_filepaths)
+    
+    for individual, acc_filepaths in data:
+        print(f"{'Processing individual:':<30} {individual}")
+        print(f"{'Files for this individual :':<30}", [os.path.basename(file) for file in acc_filepaths])
+        combine_acc_vectronics(individual, acc_filepaths, max_chunks=max_chunks, verbose=verbose)
+        print("")
+
+def create_metadata(path_mappings, metadata_path):
+
+    """
+    Generates metadata from accelerometer data files for multiple individuals.
+
+    Parameters:
+    - path_mappings (dict): A dictionary where keys are individual names (str) and values are file paths (str) to their data directories.
+    - metadata_path (str): The file path where the generated metadata CSV file will be saved.
+
+    Metadata columns 
+    -----------
+
+    file path: string
+        path-like object of where the half day segment is stored
+    individual ID: string
+        individual ID
+    year: int 
+        year of behavior observation
+    UTC Date [yyyy-mm-dd]: string 
+        date of behavior observation
+    am/pm: string 
+        AM or PM time of behavior observation
+    half day [yyyy-mm-dd_am/pm]: string 
+        half day of behavior observation
+    avg temperature [C]: float 
+        average temperature on the half day of behavior observation
+
+    """
+
+    ## Read in your combined annotations
+
+    data_locations = pd.DataFrame({'id': list(path_mappings.keys()),
+                                'location': list(path_mappings.values()),
+                                'combined_acc_location': [os.path.join(file, 'combined_acc') for file in list(path_mappings.values())],
+                                'Outputs_location': [os.path.join(file, 'Outputs') for file in list(path_mappings.values())]}
+                                )
+
+    metadata = pd.DataFrame(columns = ['file path', 'individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]'])
+    data_locations_existing = data_locations[data_locations['combined_acc_location'].apply(os.path.isdir)].reset_index(drop=True)
+
+    # Step 3: Extract individuals and their corresponding filepaths
+    individuals = data_locations_existing['id'].values
+    individuals_acc_filepaths = [
+        [
+            os.path.join(dir_path, file)
+            for file in os.listdir(dir_path)
+            if file.endswith('csv')
+        ]
+        for dir_path in data_locations_existing['combined_acc_location']
+    ]
+    
+    # Sample data for the loop
+    data = zip(individuals, individuals_acc_filepaths)
+
+    for individual, acc_filepaths in data:
+
+        print('individual {} has {} halfdays.'.format(individual, len(acc_filepaths)))
+
+        for file_path in tqdm(acc_filepaths):
+
+            basename = os.path.basename(file_path).split('.')[0]
+            date = basename.split('_')[1]
+            year = date.split('-')[0]
+            am_pm = basename.split('_')[2]
+            half_day = date + '_' + am_pm
+            avg_temp = pd.read_csv(file_path, usecols=['Temperature [Celsius]'])['Temperature [Celsius]'].mean()
+
+            metadata.loc[len(metadata)] = [file_path, individual, year, date, am_pm, half_day, avg_temp]
+
+    metadata.to_csv(metadata_path, index=False)
+
 def combined_annotations(video_path, audio_path, id_mapping):
 
     """Combine the annotations from gold and silver labels.
@@ -426,78 +631,6 @@ def get_exp_filter_profiles(exp_name):
     return train_filter_profile, test_filter_profile
 
 
-def create_metadata(path_mappings, metadata_path):
-
-    """
-    Generates metadata from accelerometer data files for multiple individuals.
-
-    Parameters:
-    - path_mappings (dict): A dictionary where keys are individual names (str) and values are file paths (str) to their data directories.
-    - metadata_path (str): The file path where the generated metadata CSV file will be saved.
-
-    Metadata columns 
-    -----------
-
-    file path: string
-        path-like object of where the half day segment is stored
-    individual ID: string
-        individual ID
-    year: int 
-        year of behavior observation
-    UTC Date [yyyy-mm-dd]: string 
-        date of behavior observation
-    am/pm: string 
-        AM or PM time of behavior observation
-    half day [yyyy-mm-dd_am/pm]: string 
-        half day of behavior observation
-    avg temperature [C]: float 
-        average temperature on the half day of behavior observation
-
-    """
-
-    ## Read in your combined annotations
-
-    data_locations = pd.DataFrame({'id': list(path_mappings.keys()),
-                                'location': list(path_mappings.values()),
-                                'combined_acc_location': [os.path.join(file, 'combined_acc') for file in list(path_mappings.values())],
-                                'Outputs_location': [os.path.join(file, 'Outputs') for file in list(path_mappings.values())]}
-                                )
-
-    metadata = pd.DataFrame(columns = ['file path', 'individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]'])
-    data_locations_existing = data_locations[data_locations['combined_acc_location'].apply(os.path.isdir)].reset_index(drop=True)
-
-    # Step 3: Extract individuals and their corresponding filepaths
-    individuals = data_locations_existing['id'].values
-    individuals_acc_filepaths = [
-        [
-            os.path.join(dir_path, file)
-            for file in os.listdir(dir_path)
-            if file.endswith('csv')
-        ]
-        for dir_path in data_locations_existing['combined_acc_location']
-    ]
-    
-    # Sample data for the loop
-    data = zip(individuals, individuals_acc_filepaths)
-
-    for individual, acc_filepaths in data:
-
-        print('individual {} has {} halfdays.'.format(individual, len(acc_filepaths)))
-
-        for file_path in tqdm(acc_filepaths):
-
-            basename = os.path.basename(file_path).split('.')[0]
-            date = basename.split('_')[1]
-            year = date.split('-')[0]
-            am_pm = basename.split('_')[2]
-            half_day = date + '_' + am_pm
-
-            csv_file = pd.read_csv(file_path)
-            avg_temp = csv_file['Temperature [Celsius]'].mean()
-
-            metadata.loc[len(metadata)] = [file_path, individual, year, date, am_pm, half_day, avg_temp]
-
-    metadata.to_csv(metadata_path, index=False)
 
 def train_test_metadata_split(train_metadata, test_metadata, test_size=0.2, random_state=0):
     
@@ -1013,25 +1146,28 @@ def setup_data_objects(metadata, all_annotations, collapse_behavior_mapping,
 
 
 if __name__ == '__main__':
+
+    # create half-day segments of vectronics data by reading it in chunks
+    create_vectronics_halfday_segments(config.AWD_VECTRONICS_PATHS, max_chunks=None)
+
+    # create a metadata of the vectronics data
+    create_metadata(config.AWD_VECTRONICS_PATHS, get_vectronics_metadata_path())
      
+    # read the vectronics metadata and load annotations
     metadata = pd.read_csv(get_vectronics_metadata_path()) # load metadata
-     
     all_annotations = combined_annotations(video_path=get_video_labels_path(), 
                                             audio_path=get_audio_labels_path(),
                                             id_mapping=config.id_mapping) # load annotations 
 
-    
-    print(f"Total number of annotations: {len(all_annotations)}")
-
+    # match annotations and vectronics data
     acc_summary, acc_data, acc_data_metadata, annotations_summary = create_matched_data(filtered_metadata=metadata, 
                                                                                         annotations=all_annotations, 
                                                                                         verbose=True, 
                                                                                         min_window_for_padding=None,
                                                                                         min_matched_duration=None)
+         
+    # save matched data, metadata, summaries                                                                              
     acc_summary.to_csv(get_vectronics_summary_path(), index=False)
     acc_data.to_csv(get_vectronics_data_path(), index=False)
     acc_data_metadata.to_csv(get_vectronics_acc_metadata_path(), index=False)
-    annotations_summary.to_csv(get_vectronics_annotations_summary_path(), index=False)
-
-    create_metadata(config.AWD_VECTRONICS_PATHS, config.VECTRONICS_METADATA_PATH)
-    
+    annotations_summary.to_csv(get_vectronics_annotations_summary_path(), index=False)    

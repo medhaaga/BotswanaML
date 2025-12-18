@@ -32,7 +32,7 @@ from src.utils.io import (get_results_path,
 
 from src.methods.prediction_model import create_dynamic_conv_model
 
-from src.utils.data_prep import (setup_data_objects,
+from src.utils.vectronics_data_prep import (setup_data_objects,
                                 setup_dataloaders,
                                 combined_annotations)
 
