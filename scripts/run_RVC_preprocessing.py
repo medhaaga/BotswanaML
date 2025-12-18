@@ -39,7 +39,7 @@ def load_RVC_data(data_path):
     return df
 
 def load_RVC_metadata():
-    metadata_df = pd.read_excel(config.RVC_MERGED_METADATA_PATH)
+    metadata_df = pd.read_excel(io.get_RVC_merged_metadata_path())
     metadata_df.start_date_dd_mm_yyyy = pd.to_datetime(metadata_df.start_date_dd_mm_yyyy, format='%d/%m/%Y')
     metadata_df.end_date_dd_mm_yyyy = pd.to_datetime(metadata_df.end_date_dd_mm_yyyy, format='%d/%m/%Y')
     return metadata_df
@@ -88,4 +88,4 @@ def preprocess_RVC_data(data_path, save_preprocessed_data=True):
 
 if __name__ == '__main__':
 
-    _ = preprocess_RVC_data(data_path=config.HISTORIC_ACC_ANNOTATED_COMBINED, save_preprocessed_data=True)
+    _ = preprocess_RVC_data(data_path=config.RVC_ACC_ANNOTATED, save_preprocessed_data=True)

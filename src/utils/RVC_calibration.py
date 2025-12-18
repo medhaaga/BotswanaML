@@ -8,6 +8,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import pandas as pd
 import config as config
+import src.utils.io as io
 
 
 def extract_six_point_cal(data_streams):
@@ -111,53 +112,6 @@ def process_folder(folder_path):
                 records.append(record)
     return pd.DataFrame(records)
 
-def load_RVC_acc_data():
-    files = [file for file in os.listdir(config.HISTORIC_ACC) if file.endswith('.txt')]
-
-    dfs = []
-    for file in files:
-        df_temp = pd.read_table(os.path.join(config.HISTORIC_ACC, file))
-        df_temp['animal_id'] = file.split('_')[0]
-        df_temp = df_temp.sort_values(by='UTC time (yyyy-mm-dd HH:MM:SS)')
-        dfs.append(df_temp)
-
-
-    df = pd.concat(dfs)
-    df['UTC time (yyyy-mm-dd HH:MM:SS)'] = pd.to_datetime(df['UTC time (yyyy-mm-dd HH:MM:SS)'])
-    df = df.rename(columns={'UTC time (yyyy-mm-dd HH:MM:SS)': 'UTC time', 
-                            'GPS time (s)': 'GPS time', 
-                            'Max accel peak X': 'Max peak X',
-                            'Max accel peak Y': 'Max peak Y',
-                            'Max accel peak Z': 'Max peak Z',
-                            'Mean accel peak X': 'Mean peak X',
-                            'Mean accel peak Y': 'Mean peak Y',
-                            'Mean accel peak Z': 'Mean peak Z',
-                            'Mean accel X': 'Mean X',
-                            'Mean accel Y': 'Mean Y',
-                            'Mean accel Z': 'Mean Z'
-                            })
-
-    # fixing animal ID 'Mj' instead of 'MJ'
-    df['animal_id'] = df['animal_id'].replace('Mj', 'MJ')
-
-    # There are some rows with year < 2000, which are not valid
-    df['date'] = df['UTC time'].dt.date
-    df = df[df['UTC time'].dt.year > 2000]
-
-    # Check if there are any duplicate rows in the DataFrame
-    has_duplicates = df.duplicated().any()
-
-    if has_duplicates:
-        print("The DataFrame contains duplicate rows.")
-    else:
-        print("The DataFrame does not contain any duplicate rows.")
-
-    # To see how many duplicates there are:
-    num_duplicates = df.duplicated().sum()
-    print(f"Number of duplicate rows found: {num_duplicates}")
-    df.drop_duplicates(inplace=True)
-
-    return df
 
 def match_metadata(row, metadata_df):
     aid = row['animal_id']
@@ -386,22 +340,22 @@ def threshold_RVC(df):
 if __name__ == "__main__":
 
     print("=" * 40)
-    if os.path.exists(config.RVC_METADATA_PATH):
-        print(f"Loading existing metadata from {config.RVC_METADATA_PATH}.")
-        metadata_df = pd.read_excel(config.RVC_METADATA_PATH)
+    if os.path.exists(io.get_RVC_metadata_path()):
+        print(f"Loading existing metadata from {io.get_RVC_metadata_path()}.")
+        metadata_df = pd.read_excel(io.get_RVC_metadata_path())
     else:
-        print(f"No existing metadata found at {config.RVC_METADATA_PATH}.")
+        print(f"No existing metadata found at {io.get_RVC_metadata_path()}.")
         metadata_df = None
 
-    xml_df = process_folder(config.RVC_HEADER_FILES_PATH)
+    xml_df = process_folder(io.get_RVC_header_files_dir())
     df_merged = pd.merge(
     metadata_df,
     xml_df,
     on=['collar_number', 'animal_id'],
     how='left'  # use 'left' to preserve df_main structure
     )
-    df_merged.to_excel(config.RVC_MERGED_METADATA_PATH, index=False)
-    print(f"Saved merged metadata to {config.RVC_MERGED_METADATA_PATH}.")
+    df_merged.to_excel(io.get_RVC_merged_metadata_path(), index=False)
+    print(f"Saved merged metadata to {io.get_RVC_merged_metadata_path()}.")
 
     print("=" * 40)
 

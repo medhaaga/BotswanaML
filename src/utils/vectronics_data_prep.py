@@ -1148,10 +1148,10 @@ def setup_data_objects(metadata, all_annotations, collapse_behavior_mapping,
 if __name__ == '__main__':
 
     # create half-day segments of vectronics data by reading it in chunks
-    create_vectronics_halfday_segments(config.AWD_VECTRONICS_PATHS, max_chunks=None)
+    create_vectronics_halfday_segments(config.VECTRONICS_PATHS, max_chunks=None)
 
     # create a metadata of the vectronics data
-    create_metadata(config.AWD_VECTRONICS_PATHS, get_vectronics_metadata_path())
+    create_metadata(config.VECTRONICS_PATHS, get_vectronics_metadata_path())
      
     # read the vectronics metadata and load annotations
     metadata = pd.read_csv(get_vectronics_metadata_path()) # load metadata

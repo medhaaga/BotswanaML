@@ -6,7 +6,16 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.lines import Line2D
 import config as config
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    confusion_matrix, accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    precision_recall_curve,
+    roc_curve,
+    auc
+)
+
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize
 import matplotlib.dates as mdates
@@ -136,6 +145,178 @@ def plot_multiclass_roc(labels, preds, label_encoder=None):
     plt.legend()
     plt.grid(True)
     plt.show()
+
+def plot_multiclass_threshold_diagnostics(
+    true_behaviors,
+    prediction_scores,
+    label_encoder,
+    n_thresholds=101
+):
+    n_samples, n_classes = prediction_scores.shape
+    thresholds = np.linspace(0.0, 1.0, n_thresholds)
+
+    # Identify which classes are actually present
+    present_classes = np.unique(true_behaviors)
+    present_classes = present_classes[present_classes < n_classes]
+
+    if len(present_classes) == 0:
+        raise ValueError("No valid classes present in true_behaviors.")
+
+    # One-vs-rest binarization (full width, but we'll index later)
+    y_true_bin = label_binarize(
+        true_behaviors,
+        classes=np.arange(n_classes)
+    )
+
+    # Containers (only for present classes)
+    precision_curves = {}
+    recall_curves = {}
+    pr_curves = {}
+    roc_curves = {}
+    aucs = {}
+
+    # ---------- Precision / Recall vs threshold ----------
+    for c in present_classes:
+        precision_vals = []
+        recall_vals = []
+
+        for t in thresholds:
+            y_pred_bin = (prediction_scores[:, c] >= t).astype(int)
+
+            precision_vals.append(
+                precision_score(
+                    y_true_bin[:, c],
+                    y_pred_bin,
+                    zero_division=0
+                )
+            )
+            recall_vals.append(
+                recall_score(
+                    y_true_bin[:, c],
+                    y_pred_bin,
+                    zero_division=0
+                )
+            )
+
+        precision_curves[c] = np.array(precision_vals)
+        recall_curves[c] = np.array(recall_vals)
+
+    # Macro averages (only over present classes)
+    precision_macro = np.mean(
+        np.stack(list(precision_curves.values())), axis=0
+    )
+    recall_macro = np.mean(
+        np.stack(list(recall_curves.values())), axis=0
+    )
+
+    # ---------- Precision–Recall curves ----------
+    recall_grid = np.linspace(0, 1, 1000)
+    interp_precisions = []
+
+    for c in present_classes:
+        p, r, _ = precision_recall_curve(
+            y_true_bin[:, c],
+            prediction_scores[:, c]
+        )
+        pr_curves[c] = (r, p)
+        interp_precisions.append(
+            np.interp(recall_grid, r[::-1], p[::-1])
+        )
+
+    pr_macro = np.mean(interp_precisions, axis=0)
+
+    # ---------- ROC curves ----------
+    fpr_grid = np.linspace(0, 1, 1000)
+    interp_tprs = []
+
+    for c in present_classes:
+        fpr, tpr, _ = roc_curve(
+            y_true_bin[:, c],
+            prediction_scores[:, c]
+        )
+        roc_curves[c] = (fpr, tpr)
+        aucs[c] = auc(fpr, tpr)
+        interp_tprs.append(np.interp(fpr_grid, fpr, tpr))
+
+    roc_macro = np.mean(interp_tprs, axis=0)
+    auc_macro = auc(fpr_grid, roc_macro)
+
+    # ---------- Plotting ----------
+    fig, axes = plt.subplots(2, 2, figsize=(17, 12))
+
+    # Precision vs threshold
+    for c in present_classes:
+        axes[0, 0].plot(
+            thresholds,
+            precision_curves[c], 
+            linewidth=2,
+            label=label_encoder.inverse_transform([c])[0]
+        )
+    axes[0, 0].plot(thresholds, precision_macro, linewidth=3, linestyle='--', label="Average", color='black')
+    axes[0, 0].set_title("Precision vs Threshold")
+    axes[0, 0].set_xlabel("Threshold")
+    axes[0, 0].set_ylabel("Precision")
+    axes[0, 0].grid(True)
+
+    # Recall vs threshold
+    for c in present_classes:
+        axes[0, 1].plot(
+            thresholds,
+            recall_curves[c],
+            linewidth=2,
+            label=label_encoder.inverse_transform([c])[0]
+        )
+    axes[0, 1].plot(thresholds, recall_macro, linewidth=3, linestyle='--',color='black', label="Average")
+    axes[0, 1].set_title("Recall vs Threshold")
+    axes[0, 1].set_xlabel("Threshold")
+    axes[0, 1].set_ylabel("Recall")
+    axes[0, 1].legend(loc="center left", bbox_to_anchor=(1.02, 0.5), ncol=1,)
+
+    axes[0, 1].grid(True)
+
+    # Precision–Recall curve
+    for c in present_classes:
+        r, p = pr_curves[c]
+        axes[1, 0].plot(
+            r, p,
+            linewidth=2,
+            label=label_encoder.inverse_transform([c])[0]
+        )
+    axes[1, 0].plot(recall_grid, pr_macro, linewidth=3, linestyle='--',color='black', label="Average")
+    axes[1, 0].set_title("Precision–Recall Curve")
+    axes[1, 0].set_xlabel("Recall")
+    axes[1, 0].set_ylabel("Precision")
+    axes[1, 0].grid(True)
+
+    # ROC curve
+    for c in present_classes:
+        fpr, tpr = roc_curves[c]
+        axes[1, 1].plot(
+            fpr, tpr,
+            linewidth=2,
+            label=f"{label_encoder.inverse_transform([c])[0]} (AUC={aucs[c]:.2f})"
+        )
+    axes[1, 1].plot(
+        fpr_grid,
+        roc_macro,
+        linewidth=3,
+        color='black', 
+        linestyle='--',
+        label=f"Average (AUC={auc_macro:.2f})"
+    )
+    axes[1, 1].plot([0, 1], [0, 1], linestyle="--")
+    axes[1, 1].set_title("ROC Curve")
+    axes[1, 1].set_xlabel("False Positive Rate")
+    axes[1, 1].set_ylabel("True Positive Rate")
+    axes[1, 1].legend(loc="center left", bbox_to_anchor=(1.02, 0.5), ncol=1,)
+
+    # axes[1, 1].legend(loc="lower center", bbox_to_anchor=(0.5, -0.5), ncol=2)
+
+    axes[1, 1].grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
 
 def plot_signal_and_online_predictions(time, signal, online_avg, online_avg_times, window_length, label_encoder, plot_path=None, half_day_behaviors=None):
     """

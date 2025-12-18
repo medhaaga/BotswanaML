@@ -210,6 +210,28 @@ def get_exp_dir(output_root: str, exp_name: str):
     os.makedirs(exp_dir, exist_ok=False)
     return exp_dir
 
+def get_RVC_metadata_path():
+    data_dir = get_data_path()
+    dir = os.path.join(data_dir, 'RVC_metadata.xlsx')
+    if os.path.exists(dir):
+        return dir
+    else:
+        raise FileNotFoundError
+    
+def get_RVC_merged_metadata_path():
+    data_dir = get_data_path()
+    dir = os.path.join(data_dir, 'RVC_merged_metadata.xlsx')
+    if os.path.exists(dir):
+        return dir
+    else:
+        raise FileNotFoundError
+    
+def get_RVC_header_files_dir():
+    data_dir = get_data_path()
+    dir = os.path.join(data_dir, 'RVC_header_files')
+    os.makedirs(dir, exist_ok=True)
+    return dir
+
 def save_results(results, model, configs, run_name=None):
     """Saves training results, model, and configs."""
     if run_name is None:
