@@ -202,7 +202,7 @@ def create_metadata(path_mappings, metadata_path):
                                 'Outputs_location': [os.path.join(file, 'Outputs') for file in list(path_mappings.values())]}
                                 )
 
-    metadata = pd.DataFrame(columns = ['file path', 'individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]'])
+    metadata = pd.DataFrame(columns = ['file path', 'individual ID', 'year', 'UTC Date [yyyy-mm-dd]', 'am/pm', 'half day [yyyy-mm-dd_am/pm]'])
     data_locations_existing = data_locations[data_locations['combined_acc_location'].apply(os.path.isdir)].reset_index(drop=True)
 
     # Step 3: Extract individuals and their corresponding filepaths
@@ -230,9 +230,9 @@ def create_metadata(path_mappings, metadata_path):
             year = date.split('-')[0]
             am_pm = basename.split('_')[2]
             half_day = date + '_' + am_pm
-            avg_temp = pd.read_csv(file_path, usecols=['Temperature [Celsius]'])['Temperature [Celsius]'].mean()
+            # avg_temp = pd.read_csv(file_path, usecols=['Temperature [Celsius]'])['Temperature [Celsius]'].mean()
 
-            metadata.loc[len(metadata)] = [file_path, individual, year, date, am_pm, half_day, avg_temp]
+            metadata.loc[len(metadata)] = [file_path, individual, year, date, am_pm, half_day]
 
     metadata.to_csv(metadata_path, index=False)
 
