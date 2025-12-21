@@ -6,7 +6,7 @@ import numpy as np
 sys.path.append('.')
 sys.path.append('../')
 
-from src.utils.RVC_preprocessing import preprocess_data
+from src.utils.RVC_preprocessing import preprocess_data, process_folder
 import config as config
 import src.utils.io as io
 
@@ -88,4 +88,25 @@ def preprocess_RVC_data(data_path, save_preprocessed_data=True):
 
 if __name__ == '__main__':
 
+    #------------------------------------------------
+    # Create metadata 
+    #------------------------------------------------
+
+    if os.path.exists(io.get_RVC_metadata_path()):
+        print(f"Loading existing metadata from {io.get_RVC_metadata_path()}.")
+        metadata_df = pd.read_excel(io.get_RVC_metadata_path())
+    else:
+        print(f"No existing metadata found at {io.get_RVC_metadata_path()}.")
+        metadata_df = None
+
+    xml_df = process_folder(io.get_RVC_header_files_dir())
+    df_merged = pd.merge(metadata_df, xml_df,
+                        on=['collar_number', 'animal_id'], how='left' )
+    df_merged.to_excel(io.get_RVC_merged_metadata_path(), index=False)
+    print(f"Saved merged metadata to {io.get_RVC_merged_metadata_path()}")
+
+    #------------------------------------------------
+    # Preprocess RVC data 
+    #------------------------------------------------
+    
     _ = preprocess_RVC_data(data_path=config.RVC_ACC_ANNOTATED, save_preprocessed_data=True)

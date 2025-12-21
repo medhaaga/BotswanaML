@@ -7,10 +7,8 @@ from .paths import (VECTRONICS_PATHS,
                 
                         )
 
-from .settings import (RAW_COLLAPSE_BEHAVIORS_MAPPING,
-                       SUMMARY_COLLAPSE_BEHAVIORS_MAPPING,
+from .settings import (SUMMARY_COLLAPSE_BEHAVIORS_MAPPING,
                        SUMMARY_BEHAVIORS,
-                       RAW_BEHAVIORS,
                        id_mapping,
                        SAMPLING_RATE,
                        COLOR_LIST)

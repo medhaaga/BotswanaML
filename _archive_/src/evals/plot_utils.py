@@ -11,7 +11,7 @@ import src.utils.io as io
 import config as config
 import torch
 from src.eval.eval_utils import evaluate_multilabel_distribution
-import src.methods.dann as dann
+import archive.src.methods.dann as dann
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.dates as mdates
 from src.utils import preprocess

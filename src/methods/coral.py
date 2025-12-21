@@ -50,7 +50,8 @@ class SimpleFeatureNet(nn.Module):
             nn.Linear(input_dim, 128),
             nn.ReLU(),
             nn.Linear(128, feat_dim),
-            nn.ReLU()
+            nn.ReLU(),
+
         )
         self.classifier = nn.Linear(feat_dim, num_classes)
 
@@ -63,7 +64,6 @@ class SimpleFeatureNet(nn.Module):
         else:
             return logits
     
-
     
 # Usage in a train step (sketch):
 def coral_train_step(model, source_x, source_y, target_x, optimizer, lambda_coral=1.0):

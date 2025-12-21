@@ -380,14 +380,12 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
             AM or PM time of behavior observation
         half day [yyyy-mm-dd_am/pm]: string 
             half day of behavior observation
-        avg temperature [C]: float 
-            average temperature on the half day of behavior observation
 
     """
     # create dataframes for saving matched acceleration and behavior data
 
     cols = ['individual ID', 'behavior', 'behavior_start', 'behavior_end', 'duration', 
-            'year', 'UTC date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]', 'avg temperature [C]', 
+            'year', 'UTC date [yyyy-mm-dd]', 'am/pm',  'half day [yyyy-mm-dd_am/pm]',  
             'acc_x', 'acc_y', 'acc_z', 'Source', 'Confidence (H-M-L)', 'Eating intensity']
     
     acc_data = pd.DataFrame(columns=cols, index=[])
@@ -481,7 +479,6 @@ def create_matched_data(filtered_metadata, annotations, verbose=True, min_window
                                                             individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop, 'UTC Date [yyyy-mm-dd]'].values[0],
                                                             individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop, 'am/pm'].values[0],
                                                             unique_period_loop,
-                                                            individual_metadata.loc[individual_metadata['half day [yyyy-mm-dd_am/pm]'] == unique_period_loop, 'avg temperature [C]'].values[0],
                                                             behaviour_acc['Acc X [g]'].to_list(),
                                                             behaviour_acc['Acc Y [g]'].to_list(),
                                                             behaviour_acc['Acc Z [g]'].to_list(),

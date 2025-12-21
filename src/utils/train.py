@@ -12,7 +12,7 @@ from tqdm import trange
 
 from src.utils import io as utils_io
 from src.methods.coral import coral_loss, SimpleFeatureNet
-from src.methods.dann import DANNModel, FeatureExtractor, LabelClassifier, DomainClassifier
+from archive.src.methods.dann import DANNModel, FeatureExtractor, LabelClassifier, DomainClassifier
 
     
 #############################################

@@ -1,6 +1,5 @@
 
 import pytz
-import pandas as pd
 
 # don't change these
 DATE_FORMAT = "%Y%m%d_%H%M%S"
@@ -10,42 +9,6 @@ COLOR_LIST = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
     "#9467bd", "#8c564b", "#e377c2", "#17becf"
 ]
-
-# map fine behavior classifications in annottaions file to coarser behavior classes
-RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary', 
-                                    'Lying (head down)': 'Stationary',
-                                    'Walking': 'Moving',
-                                    'Trotting': 'Moving',
-                                    'Running': 'Running',
-                                    'Standing': 'Stationary',
-                                    'Sitting':  'Stationary',
-                                    'Marking (scent)': 'Other',
-                                    'Interaction': 'Other',
-                                    'Rolling': 'Other',
-                                    'Scratching': 'Other',
-                                    'Drinking': 'Other',
-                                    'Dig': 'Other',
-                                    'Capture?': 'Other',
-                                    'Eating': 'Feeding',
-                                    }
-
-# RAW_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Vigilant', 
-#                                     'Lying (head down)': 'Resting',
-#                                     'Walking': 'Moving',
-#                                     'Trotting': 'Moving',
-#                                     'Running': 'Running',
-#                                     'Standing': 'Vigilant',
-#                                     'Sitting':  'Vigilant',
-#                                     'Marking (scent)': 'Marking',
-#                                     'Interaction': 'Other',
-#                                     'Rolling': 'Marking',
-#                                     'Scratching': 'Other',
-#                                     'Drinking': 'Other',
-#                                     'Dig': 'Other',
-#                                     'Capture?': 'Other',
-#                                     'Eating': 'Feeding',
-#                                     }
-
 
 # no need to change these. We use it to map a separate encoding of individual ID to the globally used individual IDs
 id_mapping = {'2021_ninja_ash': 'ash', '2021_aqua_palus': 'palus', '2021_samurai_green': 'green', 
@@ -76,7 +39,4 @@ SUMMARY_COLLAPSE_BEHAVIORS_MAPPING = {'Lying (head up)': 'Stationary',
 
 
 # behaviors of interest for classification 
-RAW_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']
-# RAW_BEHAVIORS = ['Feeding', 'Moving', 'Resting', 'Running', 'Vigilant']
-
 SUMMARY_BEHAVIORS = ['Feeding', 'Moving', 'Other', 'Running', 'Stationary']
