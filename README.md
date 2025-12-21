@@ -424,11 +424,7 @@ Each run saves:
 
 ## Model Calibration
 
-Model calibration code is implemented in:
-
-```
-src/methods/calibration.py
-```
+Model calibration code is implemented in `src/methods/calibration.py`.
 
 Calibration and visualization for CORAL and FixMatch models are provided in:
 
